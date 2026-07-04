@@ -71,7 +71,12 @@ _PRAETOR_DEMO_SECRET = "praetor-demo-secret-do-not-use-in-prod"
 
 
 def _praetor_secret() -> bytes:
-    return os.environ.get("PINN_HMAC_SECRET", _PRAETOR_DEMO_SECRET).encode("utf-8")
+    # `or` (not a get() default): .env.example ships `PINN_HMAC_SECRET=` which
+    # dotenv exports as an EMPTY STRING — get()'s default would then sign with
+    # b"" while the teammate's `settings.hmac_secret or _DEMO_SECRET` falls
+    # back to the demo secret, silently breaking every signature. Caught by
+    # scripts/test_cross_layer_contract.py (empty-env case).
+    return (os.environ.get("PINN_HMAC_SECRET") or _PRAETOR_DEMO_SECRET).encode("utf-8")
 
 
 def to_praetor_signed_reading(
