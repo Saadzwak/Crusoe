@@ -1,0 +1,37 @@
+# Environment — repo is PUBLIC, never commit keys
+.env
+.env.local
+.env.*.local
+*.pem
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Node / Next.js
+node_modules/
+.next/
+out/
+dist/
+*.tsbuildinfo
+npm-debug.log*
+
+# Datasets & model weights (large)
+pinn/data/**
+!pinn/data/.gitkeep
+!pinn/data/README.md
+pinn/models/*.pt
+pinn/models/*.pth
+pinn/models/*.ckpt
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
