@@ -1,0 +1,72 @@
+{
+  "vibration": {
+    "val_accuracy_4class": 0.9825,
+    "sample": {
+      "true_class": "OR",
+      "pred_class": "OR"
+    },
+    "ims_health_corr_with_lifetime": 0.989
+  },
+  "fatigue": {
+    "damage_corr_with_lifetime": 0.99,
+    "final_window_damage_D": 0.897,
+    "true_lifetime_position": 0.997,
+    "hours_to_replacement_at_D0.9_(Basquin/Miner)": 1.9,
+    "note": "N_f = 4.8e8 cycles = geometric mean of the 3 REAL IMS failures; sigma_f' family in pinn/physics/fatigue.py"
+  },
+  "thermal": {
+    "val_recall_machine_failure@0.5": 0.807,
+    "val_mean_pred_on_healthy": 0.107,
+    "sample_HDF_row_pred_MF_HDF_PWF": [
+      0.956,
+      0.995,
+      0.014
+    ]
+  },
+  "rul": {
+    "test_RMSE_cycles_(capped_target)": 13.69,
+    "pred_range": [
+      14.3,
+      123.6
+    ],
+    "mean_dRUL_per_cycle_below_cap_(should_be_-1)": -0.775,
+    "frac_increasing_steps_below_cap": 0.321
+  },
+  "pressure": {
+    "provenance": "SYNTHETIC \u2014 generated curing cycles, never measured data",
+    "val_anomaly_accuracy@0.5": 0.825,
+    "alpha_end_MAE": 0.0182,
+    "alpha_corr_on_leaky_cycles": 0.917,
+    "under_cure_detection_(alpha<0.90)": {
+      "n_true_under_cured": 6,
+      "n_caught_raw": 2,
+      "n_caught_calibrated": 3,
+      "n_false_alarms_calibrated": 0
+    },
+    "alpha_calibration_(pred_to_true,_fit_on_train)": [
+      1.7264,
+      -0.6813
+    ],
+    "recon_peak_bar": 15.36
+  },
+  "virtual_sensor_demo": {
+    "ai4i_process_temp": {
+      "withheld_sensor": "Process temperature [K] (input column masked)",
+      "n_val_rows": 2000,
+      "MAE_K": 0.561,
+      "true_range_K": [
+        306.0,
+        313.6
+      ],
+      "MAE_as_pct_of_range": 7.4,
+      "provenance": "SIMULATED ground truth (AI4I)"
+    },
+    "cwru_fan_end": {
+      "withheld_sensor": "Fan-end accelerometer (REAL, never a model input)",
+      "n_val_windows": 685,
+      "band_energy_MAE": 0.0221,
+      "rms_median_relative_error_pct": 11.7,
+      "provenance": "REAL measured ground truth (CWRU)"
+    }
+  }
+}

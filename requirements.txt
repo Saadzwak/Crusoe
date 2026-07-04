@@ -1,0 +1,12 @@
+# Physical layer (pinn/) dependencies — Python 3.12
+# Install torch CPU wheel explicitly (GPU on this project's dev machine is a
+# 4GB Maxwell Quadro, below recent CUDA wheel support; CPU is enough for v0):
+#   pip install torch --index-url https://download.pytorch.org/whl/cpu
+torch>=2.4
+numpy>=2.0
+pandas>=2.2
+scipy>=1.14
+matplotlib>=3.9
+py7zr>=1.0          # IMS dataset extraction (zip -> 7z -> rar nesting)
+tabulate>=0.9       # pandas .to_markdown() in exploration notes
+# (RAR step of IMS extraction uses Windows' built-in bsdtar — no pip package.)

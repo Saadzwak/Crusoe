@@ -1,0 +1,29 @@
+{
+  "schema_version": "0.1-draft",
+  "machine_id": "curing_press_01",
+  "timestamp": "2026-07-04T19:54:41.957640+00:00",
+  "head_outputs": {
+    "pressure": {
+      "provenance": "SYNTHETIC \u2014 generated curing cycles, never measured data",
+      "val_anomaly_accuracy@0.5": 0.875,
+      "alpha_end_MAE": 0.0103,
+      "alpha_corr_on_leaky_cycles": 0.891,
+      "under_cure_detection_(alpha<0.90)": {
+        "n_true_under_cured": 6,
+        "n_caught_raw": 3,
+        "n_caught_calibrated": 3,
+        "n_false_alarms_calibrated": 1
+      },
+      "alpha_calibration_(pred_to_true,_fit_on_train)": [
+        1.1468,
+        -0.133
+      ],
+      "recon_peak_bar": 17.02
+    },
+    "virtual_sensor_demo": {}
+  },
+  "provenance": {
+    "pressure": "SYNTHETIC (generated in-repo, no public dataset exists)"
+  },
+  "hmac_signature": "2a39d05fd1d6601ae9cba53f603a57eb472e237dfa12a23c4c8fedc2669278ac"
+}
