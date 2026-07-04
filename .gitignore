@@ -1,0 +1,58 @@
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# ---- Environnements virtuels ----
+.venv/
+venv/
+env/
+ENV/
+.python-version
+
+# ---- Notebooks ----
+.ipynb_checkpoints/
+
+# ---- Données brutes & artefacts ML (ne pas versionner : volumineux, retéléchargeables) ----
+data/
+datasets/
+raw/
+*.zip
+*.tar
+*.tar.gz
+*.7z
+*.parquet
+*.h5
+*.hdf5
+*.mat
+*.npy
+*.npz
+*.pt
+*.pth
+*.ckpt
+*.onnx
+*.pkl
+*.joblib
+mlruns/
+wandb/
+
+# ---- Secrets / config locale ----
+.env
+.env.*
+!.env.example
+*.key
+secrets.*
+
+# ---- Éditeurs / OS ----
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+desktop.ini
