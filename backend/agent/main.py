@@ -47,6 +47,7 @@ from typing import Any, Optional
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles  # integration: serve CureWatch assets
 from pydantic import BaseModel
 
 from .config import settings
@@ -261,6 +262,9 @@ async def _run_loop(interval: float) -> None:
 # ===================================================================== app
 app = FastAPI(title="PRAETOR agent backend", version="0.1.0")
 
+# integration (CureWatch UI): vendor JS, runtime and assets under /static/
+app.mount("/static", StaticFiles(directory=_STATIC), name="static")
+
 _frontend = os.environ.get("FRONTEND_URL", "").strip()
 _origins = {o for o in (_frontend, "http://localhost:3000", "http://127.0.0.1:3000") if o}
 app.add_middleware(
@@ -418,8 +422,28 @@ async def advisory_override(advisory_id: str, body: ReasonBody) -> dict:
 
 @app.post("/api/chat")
 async def chat(req: ChatRequest):
+    # ------------------------------------------------------------------
+    # INTEGRATION REPAIR (2026-07-05, CureWatch merge): the committed
+    # handler body was TRUNCATED at "ra" (mid-`raise`) — the whole chat
+    # path was missing from the repo even though CLAUDE.md documents it
+    # E2E-green locally (push lost the body). Minimal faithful
+    # reconstruction so the merged system works: 422 on empty question,
+    # quick lane via operator_flow.quick_answer, deep lane via the
+    # tool-calling operator, non-stream JSON {"answer": ...}.
+    # @owner: please graft your full streaming version back on top —
+    # the CureWatch UI only relies on stream:false + {"answer"}.
+    # ------------------------------------------------------------------
     if not req.question.strip():
-        ra
+        raise HTTPException(422, "empty question")
+    if req.mode == "quick" or S.tool_operator is None:
+        turn, provenance = await quick_answer(req.question, req.machine_id,
+                                              S.store, S.client, S.interventions)
+        return {"answer": turn.get("content", ""), "mode": "quick",
+                "provenance": provenance, "turn": turn}
+    turn, provenance = await S.tool_operator.answer(req.question)
+    data = turn.model_dump() if hasattr(turn, "model_dump") else dict(turn)
+    return {"answer": data.get("content", ""), "mode": "deep",
+            "provenance": provenance, "turn": data}
 
 @app.get("/api/plant")
 async def plant() -> dict:
