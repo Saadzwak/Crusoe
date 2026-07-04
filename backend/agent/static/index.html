@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>PRAETOR · agent console</title>
+<!-- C3-toolchat-v1: chat panel shows live tool-call activity + collapsible Data Provenance -->
 <style>
   :root{
     --bg:#0b0e11; --panel:#12161b; --panel2:#171c22; --line:#232a32;
@@ -101,6 +102,18 @@
   .bubble.ag .gaps{display:block; margin-top:6px; color:var(--watch); font-size:11.5px;}
   .cites{display:flex; gap:6px; flex-wrap:wrap; margin-top:7px;}
   .chip{font-size:10.5px; background:rgba(88,166,255,.1); border:1px solid rgba(88,166,255,.35); color:var(--blue); border-radius:10px; padding:1px 8px;}
+  /* C3-toolchat-v1: inline tool-call activity while the agent works */
+  .toolact{display:block; margin:0 0 6px; font-size:11.5px; color:var(--dim); white-space:normal;}
+  .toolact .tline{display:block; padding:1px 0; animation:slidein .2s ease;}
+  .toolact .tname{color:var(--blue);}
+  .toolact .tok{color:var(--clear); font-weight:700;}
+  .toolact .terr{color:var(--critical); font-weight:700;}
+  .toolact .tsum{color:var(--dim);}
+  /* C3-toolchat-v1: Data Provenance as a collapsible audit trail */
+  details.prov{margin:8px 0 0; border-top:1px dashed var(--line); padding-top:6px;}
+  details.prov summary{color:var(--dim); font-size:11px; letter-spacing:1px;}
+  details.prov summary:hover{color:var(--blue);}
+  details.prov pre{white-space:pre-wrap; font-size:10.5px; color:var(--dim); margin-top:5px; line-height:1.55; font-family:var(--mono);}
   #chatForm{display:flex; gap:8px; padding:10px 14px; border-top:1px solid var(--line); background:var(--panel);}
   #chatInput{flex:1; background:var(--panel2); border:1px solid var(--line); color:var(--ink); font-family:var(--mono); font-size:12.5px; padding:8px 10px; border-radius:3px;}
   #chatInput:focus{outline:none; border-color:var(--amber);}
@@ -135,9 +148,9 @@
       <div id="deptChips"></div>
     </div>
     <div id="chat">
-      <h2>OPERATOR CHAT <b>— cited answers, gaps declared</b></h2>
+      <h2>OPERATOR CHAT <b>— tool-calling agent, audited provenance</b></h2>
       <div id="chatLog">
-        <div class="bubble ag">Ask me about any machine — e.g. <i>"Why is RC-07 flagged?"</i> or <i>"What does a curing stop cost?"</i><br>Every number I give carries its source; I advise, you decide.</div>
+        <div class="bubble ag">Ask me about any machine — e.g. <i>"Why is RC-07 flagged?"</i> or <i>"Verify the custody chain on RC-07."</i><br>I call real tools in front of you; every answer ends with its Data Provenance trail. I advise, you decide.</div>
       </div>
       <form id="chatForm">
         <input id="chatInput" autocomplete="off" placeholder="Ask the line agent… (RC-07, CL-03, MX-02)">
@@ -330,15 +343,35 @@ function connectStream() {
   es.onerror = () => { /* EventSource auto-reconnects */ };
 }
 
-/* ---------------- operator chat (POST + SSE parse) ---------------- */
-function renderAgentBubble(node, text, citations) {
+/* ---------------- operator chat (POST + SSE parse) — C3-toolchat-v1 ---------------- */
+function fmtParams(p) {
+  return Object.entries(p || {}).map(([k, v]) => k + "=" + v).join(", ");
+}
+
+function renderAgentBubble(node, text, citations, toolDiv) {
   node.innerHTML = "";
-  const gapsIdx = text.indexOf("Gaps:");
+  if (toolDiv && toolDiv.children.length) node.append(toolDiv);
+  // split off the programmatic Data Provenance block → collapsible audit trail
+  let body = text, prov = "";
+  const pIdx = text.indexOf("Data Provenance:");
+  if (pIdx >= 0) {
+    body = text.slice(0, pIdx).replace(/\s+$/, "");
+    prov = text.slice(pIdx + "Data Provenance:".length).trim();
+  }
+  const gapsIdx = body.indexOf("Gaps:");
   if (gapsIdx > 0) {
-    node.append(document.createTextNode(text.slice(0, gapsIdx)));
-    node.append(el("span", "gaps", text.slice(gapsIdx)));
+    node.append(document.createTextNode(body.slice(0, gapsIdx)));
+    node.append(el("span", "gaps", body.slice(gapsIdx)));
   } else {
-    node.append(document.createTextNode(text));
+    node.append(document.createTextNode(body));
+  }
+  if (prov) {
+    const det = el("details", "prov");
+    const n = (prov.match(/^- /gm) || []).length;
+    det.append(el("summary", "", `DATA PROVENANCE — audit trail (${n} tool call${n === 1 ? "" : "s"})`));
+    const pre = el("pre", "", prov);
+    det.append(pre);
+    node.append(det);
   }
   if (citations && citations.length) {
     const cd = el("div", "cites");
@@ -354,10 +387,13 @@ $("chatForm").addEventListener("submit", async (ev) => {
   $("chatInput").value = "";
   chatLog.append(el("div", "bubble op", q));
   const agentB = el("div", "bubble ag");
+  const toolDiv = el("span", "toolact");   // agent working: ⚙ tool(...) → ok
+  const textSpan = el("span");
   const cur = el("span", "cursor");
-  agentB.append(cur);
+  agentB.append(toolDiv, textSpan, cur);
   chatLog.append(agentB);
   chatLog.scrollTop = chatLog.scrollHeight;
+  const pendingTools = [];
 
   let acc = "";
   try {
@@ -380,14 +416,33 @@ $("chatForm").addEventListener("submit", async (ev) => {
           if (line.startsWith("event: ")) evName = line.slice(7).trim();
           else if (line.startsWith("data: ")) data += line.slice(6);
         }
-        if (evName === "token") {
+        if (evName === "tool_call") {
+          const d = JSON.parse(data);
+          const ln = el("span", "tline");
+          ln.append(document.createTextNode("⚙ "));
+          ln.append(el("span", "tname", d.name + "(" + fmtParams(d.params) + ")"));
+          ln.append(el("span", "twait", " → …"));
+          toolDiv.append(ln);
+          pendingTools.push(ln);
+          chatLog.scrollTop = chatLog.scrollHeight;
+        } else if (evName === "tool_result") {
+          const d = JSON.parse(data);
+          const ln = pendingTools.shift();
+          if (ln) {
+            ln.lastChild.remove();
+            ln.append(el("span", d.ok ? "tok" : "terr", d.ok ? " → ok" : " → error"));
+            if (d.summary) ln.append(el("span", "tsum", " · " + d.summary));
+          }
+          chatLog.scrollTop = chatLog.scrollHeight;
+        } else if (evName === "token") {
           acc += JSON.parse(data).text;
-          agentB.textContent = acc;
-          agentB.append(cur);
+          // hide the streaming provenance tail — it gets its collapsible at "turn"
+          const cutIdx = acc.indexOf("Data Provenance:");
+          textSpan.textContent = cutIdx >= 0 ? acc.slice(0, cutIdx) : acc;
           chatLog.scrollTop = chatLog.scrollHeight;
         } else if (evName === "turn") {
           const turn = JSON.parse(data);
-          renderAgentBubble(agentB, turn.content, turn.citations);
+          renderAgentBubble(agentB, turn.content, turn.citations, toolDiv);
         } else if (evName === "error") {
           agentB.textContent = "agent error: " + data;
         }

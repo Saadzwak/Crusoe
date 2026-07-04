@@ -3,3 +3,5 @@ uvicorn[standard]>=0.29
 openai>=1.40
 pydantic>=2.7
 python-dotenv>=1.0
+langchain-openai>=0.2
+langchain-core>=0.3

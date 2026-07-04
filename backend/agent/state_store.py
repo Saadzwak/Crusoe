@@ -5,6 +5,11 @@ service-layer extra: `save_reading()` — TickResult carries no raw signals, so
 the service loop persists each verified PinnReading payload here and
 `get_sensor_history()` serves signals+pinn from that table (oldest → newest).
 
+C3-custody-v1 (Builder C): `save_reading()` now also stores the ingestion
+HMAC signature and the exact payload JSON at rest (nullable columns, migrated
+in-place with ALTER TABLE), and `get_readings_with_signatures()` serves them
+so the operator agent's verify_custody_chain tool can re-verify every link.
+
 stdlib sqlite3 only. One connection, check_same_thread=False, guarded by a
 threading.Lock — good enough for a demo loop + a handful of API readers.
 Pydantic objects are stored as JSON columns next to indexed scalar columns.
@@ -31,7 +36,9 @@ CREATE TABLE IF NOT EXISTS readings (
     at          REAL NOT NULL,
     signals     TEXT NOT NULL,
     pinn        TEXT NOT NULL,
-    note        TEXT NOT NULL DEFAULT ''
+    note        TEXT NOT NULL DEFAULT '',
+    signature   TEXT,
+    payload_json TEXT
 );
 CREATE INDEX IF NOT EXISTS ix_readings_machine ON readings(machine_id, id);
 CREATE INDEX IF NOT EXISTS ix_readings_epoch   ON readings(epoch);
@@ -109,6 +116,12 @@ class StateStore:
         conn = sqlite3.connect(path, check_same_thread=False)
         conn.row_factory = sqlite3.Row
         conn.executescript(_SCHEMA)
+        # C3-custody-v1 migration: older DBs predate the custody columns.
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(readings)")}
+        if "signature" not in cols:
+            conn.execute("ALTER TABLE readings ADD COLUMN signature TEXT")
+        if "payload_json" not in cols:
+            conn.execute("ALTER TABLE readings ADD COLUMN payload_json TEXT")
         conn.commit()
         return conn
 
@@ -118,13 +131,18 @@ class StateStore:
             self._conn.close()
 
     # ------------------------------------------------------------- raw reads
-    def save_reading(self, payload: dict[str, Any]) -> None:
+    def save_reading(self, payload: dict[str, Any],
+                     signature: Optional[str] = None) -> None:
         """Persist one verified PinnReading payload (service-layer extra —
-        TickResult has no signals, so sensor history lives here)."""
+        TickResult has no signals, so sensor history lives here). When the
+        ingestion `signature` is provided it is stored at rest together with
+        the exact payload JSON, so custody can be re-verified later
+        (C3-custody-v1). Backwards compatible: signature defaults to None."""
         with self._lock:
             self._conn.execute(
-                "INSERT INTO readings(machine_id, department, epoch, at, signals, pinn, note)"
-                " VALUES (?,?,?,?,?,?,?)",
+                "INSERT INTO readings(machine_id, department, epoch, at, signals,"
+                " pinn, note, signature, payload_json)"
+                " VALUES (?,?,?,?,?,?,?,?,?)",
                 (
                     str(payload.get("machine_id", "?")),
                     str(payload.get("department", "?")),
@@ -133,9 +151,44 @@ class StateStore:
                     json.dumps(payload.get("signals", {})),
                     json.dumps(payload.get("pinn", {})),
                     str(payload.get("note", "")),
+                    signature,
+                    json.dumps(payload) if signature is not None else None,
                 ),
             )
             self._conn.commit()
+
+    def get_readings_with_signatures(self, machine_id: str,
+                                     limit: int = 50) -> list[dict]:
+        """Most recent readings with their at-rest signature + exact payload,
+        oldest → newest — the custody-verification view (C3-custody-v1)."""
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT machine_id, department, epoch, at, signals, pinn, note,"
+                " signature, payload_json"
+                " FROM readings WHERE machine_id=? ORDER BY id DESC LIMIT ?",
+                (machine_id, limit),
+            ).fetchall()
+        out = []
+        for r in rows:
+            payload = None
+            if r["payload_json"]:
+                try:
+                    payload = json.loads(r["payload_json"])
+                except (TypeError, ValueError):
+                    payload = None  # corrupted at rest — custody will flag it
+            out.append({
+                "machine_id": r["machine_id"],
+                "department": r["department"],
+                "epoch": r["epoch"],
+                "at": r["at"],
+                "signals": json.loads(r["signals"]),
+                "pinn": json.loads(r["pinn"]),
+                "note": r["note"],
+                "signature": r["signature"],
+                "payload": payload,
+            })
+        out.reverse()  # oldest → newest
+        return out
 
     # ------------------------------------------------------------- contract
     def save_tick(self, tick: TickResult) -> None:

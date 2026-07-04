@@ -9,6 +9,7 @@ Endpoints (PIPELINE_CONTRACT.md):
   POST /api/loop/start?interval=5[&reset=1]
   POST /api/loop/stop
   GET  /api/stream          SSE: tick / advisory / boss / override / hello events
+                            (+ tool_call / tool_result while the chat agent works)
   GET  /api/advisories      [?status=&limit=]
   POST /api/advisory/{id}/accept
   POST /api/advisory/{id}/override   {"reason": "..."}
@@ -18,6 +19,13 @@ Endpoints (PIPELINE_CONTRACT.md):
 Builder A's pipeline is imported at module top inside try/except. If absent,
 the loop runs in "triage-echo" degraded mode: HMAC-verify each reading and
 publish raw ticks with a keyword triage — so the service demos without A.
+
+C3-toolchat-v1 (Builder C): /api/chat now routes through the tool-calling
+ToolCallingOperator (operator_agent.py) when it loads — SSE order per turn:
+tool_call* / tool_result* / token* / turn / done — and every tool_call /
+tool_result is ALSO published on the main hub so /api/stream watchers see the
+agent working. The original OperatorAgent stays as fallback and still owns
+the override handling.
 """
 from __future__ import annotations
 
@@ -93,6 +101,16 @@ class ServiceState:
                   f"in pinn/data/ (see pinn/data/README.md). Loop disabled until then.")
             self.telemetry = None
         self.operator = OperatorAgent()
+        # C3-toolchat-v1: tool-calling chat agent — lazy import; on ANY failure
+        # the legacy OperatorAgent keeps serving /api/chat (demo never dies).
+        self.tool_operator: Any = None
+        try:
+            from .operator_agent import ToolCallingOperator  # type: ignore
+            self.tool_operator = ToolCallingOperator(self.store, self.knowledge)
+            print("[main] ToolCallingOperator ready — /api/chat is tool-calling")
+        except Exception as e:  # noqa: BLE001
+            print(f"[main] ToolCallingOperator unavailable ({e!r}); "
+                  "/api/chat falls back to the evidence-block OperatorAgent")
         self.hub = Hub()
         self.pipeline: Any = None
         self.loop_task: Optional[asyncio.Task] = None
@@ -183,9 +201,12 @@ async def _run_loop(interval: float) -> None:
                 continue
             for signed in batch:
                 try:
-                    # Raw signals persist regardless of pipeline (sensor history tool).
+                    # Raw signals persist regardless of pipeline (sensor history
+                    # tool); signature stored at rest for custody re-verification
+                    # (C3-toolchat-v1).
                     if verify_payload(signed.payload, signed.signature):
-                        S.store.save_reading(signed.payload)
+                        S.store.save_reading(signed.payload,
+                                             signature=signed.signature)
                     tick: Optional[TickResult] = None
                     if S.pipeline is not None:
                         try:
@@ -256,6 +277,7 @@ async def health() -> dict:
             "omni": settings.model_omni,
         },
         "pipeline_available": PIPELINE_AVAILABLE,
+        "chat_agent": "tool-calling" if S.tool_operator is not None else "evidence-block",
         "loop_running": S.running,
         "epoch": S.epoch,
     }
@@ -336,23 +358,56 @@ async def advisory_override(advisory_id: str, body: ReasonBody) -> dict:
 async def chat(req: ChatRequest):
     if not req.question.strip():
         raise HTTPException(400, "empty question")
-    if not req.stream:
-        turn = await S.operator.answer(req.question, S.store, S.knowledge, S.client)
-        return JSONResponse(turn.model_dump())
 
-    async def gen():
+    # ---------------------------------------------------------- legacy agent
+    if S.tool_operator is None:
+        if not req.stream:
+            turn = await S.operator.answer(req.question, S.store, S.knowledge,
+                                           S.client)
+            return JSONResponse(turn.model_dump())
+
+        async def gen_legacy():
+            try:
+                async for ev in S.operator.stream_answer(req.question, S.store,
+                                                         S.knowledge, S.client):
+                    if ev.get("type") == "token":
+                        yield _sse("token", {"text": ev["text"]})
+                    elif ev.get("type") == "turn":
+                        yield _sse("turn", ev["turn"])
+            except Exception as e:  # noqa: BLE001 — keep the console alive
+                yield _sse("error", {"detail": repr(e)})
+            yield _sse("done", {})
+
+        return StreamingResponse(gen_legacy(), media_type="text/event-stream",
+                                 headers={"Cache-Control": "no-cache"})
+
+    # ---------------------------------------------- tool-calling agent (C3)
+    if not req.stream:
+        turn, provenance = await S.tool_operator.answer(req.question)
+        return JSONResponse({**turn.model_dump(), "provenance": provenance})
+
+    async def gen_tools():
         try:
-            async for ev in S.operator.stream_answer(req.question, S.store,
-                                                     S.knowledge, S.client):
-                if ev.get("type") == "token":
+            async for ev in S.tool_operator.stream_events(req.question):
+                kind = ev.get("type")
+                if kind == "tool_call":
+                    data = {"name": ev["name"], "params": ev["params"]}
+                    S.hub.publish("tool_call", data)  # /api/stream watchers too
+                    yield _sse("tool_call", data)
+                elif kind == "tool_result":
+                    data = {"name": ev["name"], "ok": ev["ok"],
+                            "summary": ev.get("summary", "")}
+                    S.hub.publish("tool_result", data)
+                    yield _sse("tool_result", data)
+                elif kind == "token":
                     yield _sse("token", {"text": ev["text"]})
-                elif ev.get("type") == "turn":
+                elif kind == "turn":
                     yield _sse("turn", ev["turn"])
         except Exception as e:  # noqa: BLE001 — keep the console alive
             yield _sse("error", {"detail": repr(e)})
         yield _sse("done", {})
 
-    return StreamingResponse(gen(), media_type="text/event-stream",
+    return StreamingResponse(gen_tools(), media_type="text/event-stream",
                              headers={"Cache-Control": "no-cache"})
 
 
