@@ -101,7 +101,9 @@ def main() -> None:
     ok("unknown machine → explicit ok:false (diagnostic + spec)")
 
     spec = toolbox.get_machine_spec("RC-07")
-    assert spec["ok"] and spec["signals"]["vibration_rms_mm_s"]["trip"] == 7.0
+    # D4-regression-v1: verified ISO 10816/20816 zone D floor is 7.1 mm/s
+    # (limits.CURING_LIMITS), replacing the old invented 7.0 trip.
+    assert spec["ok"] and spec["signals"]["vibration_rms_mm_s"]["trip"] == 7.1
     assert spec["causal_matrix"], "causal matrix context missing"
     assert "BEARING" in spec["causal_matrix"]
     ok("get_machine_spec: limits + causal matrix context for RC-07")

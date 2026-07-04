@@ -7,17 +7,24 @@ Three Roanne machines (PIPELINE_CONTRACT.md §narrative):
                         heat-dissipation (HDF) spike around epoch 8.
   MX-02  "Mixing"       Banbury internal mixer — AI4I 2020 healthy rows only.
 
-C-MAPSS → C3M signal mapping (per files (1)/DATA_PACK_README.md table;
-sensor columns are unit,cycle,op1..3,s1..s21 — s2=col idx 6, s4=8, s11=15, s15=19):
+D4-telemetry-v1 — RC-07 signals rescaled to the VERIFIED curing limits
+(backend.agent.limits, provenance in limits.PROVENANCE). The C-MAPSS unit-1
+sensors still provide deterministic realism, but as small wobble terms on top
+of a monotonic degradation arc `frac = (cycle-40)/151` (0 at epoch 0, 1 at
+end of life), so the arc is GUARANTEED to sweep the verified bands in order:
 
-  s2   LPC outlet temp   [641.0, 644.5] °R  → mould_temp_C      [150, 190] °C
-  s4   LPT outlet temp   [1398, 1428]   °R  → coil_power_kW     [ 60,  92] kW
-  s11  HPC static press. [47.0, 48.5]  psia → vibration_rms_mm_s[1.5, 7.5] mm/s
-  s15  bypass ratio      [8.38, 8.55]    —  → pressure_bar      [ 14,  22] bar
-
-All four drift upward as unit 1 approaches failure, which reads as a curing
-press running hot, drawing more coil power, vibrating harder — exactly the
-dossier's demo scenario [site_dossier p.5]. Linear map, clamped to range.
+  mould_temp_C      = 193 + 3·w(s2)  + 18.0·frac^2.6   → ~193-200 nominal,
+                      crosses the 210 °C normal ceiling at end of life (~214).
+  coil_power_kW     = C-MAPSS s4 linear map [60, 92] kW  (unchanged stand-in).
+  vibration_rms_mm_s= 0.85 + 0.2·w(s11) + 7.3·frac^2.2 → ISO zones swept in
+                      order as health decays: A(≤1.12) epochs 0-2 →
+                      B(≤2.8) 3-6 → C(≤7.1) 7-11 → D(>7.1) 12+.
+  pressure_bar      = 17.6 − 0.4·w(s15) − 2.9·frac^1.8 → ~17.5 nominal in the
+                      16-19 bar steam band, dips under 16 late (~14.5 at end).
+  cycle_min         = 12.4 + 0.3·w(s2) + 18.8·frac^3.2 → 12.5 nominal, stays
+                      ≤15 early, extends late, overruns 30 (→~31) in the last
+                      epochs (cycle ≥ ~188).
+  (w(sN) = the C-MAPSS sensor mapped linearly to [0,1] over its unit-1 range.)
 
 Demo arc (epoch = loop tick, ~12-15 epochs total):
   cycle(epoch) = min(40 + 12*epoch, 191)  →  health = 1 - cycle/192,
@@ -129,17 +136,27 @@ class TelemetrySource:
 
     # ------------------------------------------------------------- curing
     def _curing_reading(self, epoch: int) -> PinnReading:
+        # D4-telemetry-v1: arc rescaled to the verified limits (see module
+        # docstring for the exact mapping). Pure function of epoch.
         cycle = min(40 + 12 * max(epoch, 0), self._max_cycle - 1)
         _, s2, s4, s11, s15 = self._fd001[cycle - 1]
         health = round(1.0 - cycle / self._max_cycle, 3)
         rul = float(self._max_cycle - cycle)
         residual = _safe_round(0.015 + 0.8 * (1.0 - health) ** 4, 4)
 
+        # degradation fraction 0..1 over the demo arc (cycle 40 → 191)
+        frac = max(0.0, min(1.0, (cycle - 40.0) / float(self._max_cycle - 1 - 40)))
+        # C-MAPSS sensor wobble terms, each mapped to [0, 1] over unit-1 range
+        w2 = _lin(s2, 641.0, 644.5, 0.0, 1.0)
+        w11 = _lin(s11, 47.0, 48.5, 0.0, 1.0)
+        w15 = _lin(s15, 8.38, 8.55, 0.0, 1.0)
+
         signals = {
-            "mould_temp_C": _safe_round(_lin(s2, 641.0, 644.5, 150.0, 190.0)),
+            "mould_temp_C": _safe_round(193.0 + 3.0 * w2 + 18.0 * frac ** 2.6),
             "coil_power_kW": _safe_round(_lin(s4, 1398.0, 1428.0, 60.0, 92.0)),
-            "vibration_rms_mm_s": _safe_round(_lin(s11, 47.0, 48.5, 1.5, 7.5)),
-            "pressure_bar": _safe_round(_lin(s15, 8.38, 8.55, 14.0, 22.0)),
+            "vibration_rms_mm_s": _safe_round(0.85 + 0.2 * w11 + 7.3 * frac ** 2.2),
+            "pressure_bar": _safe_round(17.6 - 0.4 * w15 - 2.9 * frac ** 1.8),
+            "cycle_min": _safe_round(12.4 + 0.3 * w2 + 18.8 * frac ** 3.2, 1),
         }
 
         if epoch <= 5:

@@ -1,4 +1,4 @@
-"""Operator diagnosis toolbox (Builder C) — C3-tools-v1.
+"""Operator diagnosis toolbox (Builder C) — C3-tools-v1 + D4-tools-v1.
 
 Plain-python tool implementations behind the tool-calling operator agent
 (`operator_agent.py`). Every tool returns a JSON-serializable dict that
@@ -10,6 +10,14 @@ Spec (team): get_sensor_history, get_machine_spec, run_diagnostic,
 verify_custody_chain, analyze_drift + two explicit stubs
 (get_pinn_reconstruction, get_camera_frame — "physical subsystem
 unintegrated"). Store/knowledge are duck-typed (PIPELINE_CONTRACT.md).
+
+D4-tools-v1: MACHINE_SPECS no longer carries invented limits — RC-07/CL-03/
+MX-02 numbers are read from backend.agent.limits (the single source of
+truth), and get_machine_spec returns the PROVENANCE strings so the operator
+agent can cite the sources (incl. the ISO 10816/20816 caveat and the
+two-pressure-formulations note). The old invented RC-07 values (mould_temp
+operating 150-185 / trip 195, vibration trip 7.0, pressure 14-22) are gone:
+they false-alarmed healthy verified steam cures (196 degC is NORMAL).
 """
 from __future__ import annotations
 
@@ -18,6 +26,7 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 
 from .hmac_auth import sign_payload
+from .limits import (CL03_LIMITS, CURING_LIMITS, MX02_LIMITS, PROVENANCE)
 
 # Builder A's causal matrix — guarded import so a mid-edit triage.py can
 # never take the chat agent down (matrix context simply degrades to {}).
@@ -44,9 +53,10 @@ def _mean(xs: list[float]) -> float:
 
 
 # ===================================================================== specs
-# Static design boundaries for the three Roanne machines (narrative constants
-# from PIPELINE_CONTRACT.md + pinn/data mapping; AI4I failure-mode logic for
-# the CL-03/MX-02 limits, C-MAPSS→C3M mapping ranges for RC-07).
+# Design boundaries for the three Roanne machines. Numbers come from
+# backend.agent.limits (D4-tools-v1); narrative from PIPELINE_CONTRACT.md.
+_VZ = CURING_LIMITS["vib_zones_mm_s"]
+
 MACHINE_SPECS: dict[str, dict[str, Any]] = {
     "RC-07": {
         "machine_id": "RC-07",
@@ -59,13 +69,45 @@ MACHINE_SPECS: dict[str, dict[str, Any]] = {
                        "curing media — hot high-pressure presses are one of "
                        "the two high-severity human-risk stages on the line."),
         "signals": {
-            "mould_temp_C": {"unit": "degC", "operating": [150.0, 185.0], "trip": 195.0},
-            "coil_power_kW": {"unit": "kW", "operating": [60.0, 92.0], "trip": 95.0},
-            "vibration_rms_mm_s": {"unit": "mm/s", "operating": [1.5, 4.5],
-                                   "alert": 4.5, "trip": 7.0},
-            "pressure_bar": {"unit": "bar", "operating": [14.0, 22.0], "trip": 24.0},
+            "mould_temp_C": {
+                "unit": "degC",
+                "operating": list(CURING_LIMITS["temp_normal"]),
+                "steam_direct": list(CURING_LIMITS["temp_steam"]),
+                "provenance": PROVENANCE["mould_temp_C"],
+            },
+            "coil_power_kW": {"unit": "kW", "operating": [60.0, 92.0], "trip": 95.0,
+                              "note": ("C-MAPSS s4 stand-in mapping range — NOT a "
+                                       "verified curing limit")},
+            "vibration_rms_mm_s": {
+                "unit": "mm/s",
+                "operating": [0.0, _VZ["B"]],   # zones A+B acceptable long-term
+                "trip": _VZ["C"],               # above zone C ceiling = zone D danger
+                "zones": dict(_VZ),             # A/B/C ceilings; D = above C
+                "provenance": PROVENANCE["vibration_rms_mm_s"],
+            },
+            "pressure_bar": {
+                "unit": "bar",
+                "operating": list(CURING_LIMITS["pressure_steam_bar"]),
+                "alt_normal_min": CURING_LIMITS["pressure_normal_min_bar"],
+                "note": ("TWO source formulations: 16-19 bar (steam-direct) AND "
+                         ">20 bar; the 19-20 gap is indeterminate — see provenance"),
+                "provenance": PROVENANCE["pressure_bar"],
+            },
+            "cycle_min": {
+                "unit": "min",
+                "operating": list(CURING_LIMITS["cycle_min_range"]),
+                "extended_max": CURING_LIMITS["cycle_max_extended"],
+                "note": "15-30 min acceptable depending on tyre size/type",
+                "provenance": PROVENANCE["cycle_min"],
+            },
         },
-        "causal_tags": ["BEARING", "HDF"],
+        "provenance": {
+            "mould_temp_C": PROVENANCE["mould_temp_C"],
+            "pressure_bar": PROVENANCE["pressure_bar"],
+            "cycle_min": PROVENANCE["cycle_min"],
+            "vibration_rms_mm_s": PROVENANCE["vibration_rms_mm_s"],
+        },
+        "causal_tags": ["BEARING", "HDF", "PRESSURE"],
     },
     "CL-03": {
         "machine_id": "CL-03",
@@ -76,14 +118,30 @@ MACHINE_SPECS: dict[str, dict[str, Any]] = {
         "human_risk": ("Nip-point entrapment between counter-rotating rolls "
                        "— the other high-severity human-risk stage."),
         "signals": {
-            "roll_temp_C": {"unit": "degC", "operating": [30.0, 45.0], "trip": 50.0},
-            "thermal_margin_K": {"unit": "K", "operating": [8.0, 15.0], "alert_low": 9.0,
-                                 "note": ("AI4I HDF logic: margin under ~8 K with nip "
-                                          "drive under ~1380 rpm = heat-dissipation "
-                                          "failure band")},
-            "drive_speed_rpm": {"unit": "rpm", "operating": [1200.0, 2900.0]},
-            "drive_torque_Nm": {"unit": "Nm", "operating": [10.0, 70.0], "trip": 76.0},
-            "tool_wear_min": {"unit": "min", "operating": [0.0, 220.0], "trip": 250.0},
+            "roll_temp_C": {"unit": "degC",
+                            "operating": list(CL03_LIMITS["roll_temp_C"]),
+                            "trip": CL03_LIMITS["roll_temp_trip_C"]},
+            "thermal_margin_K": {
+                "unit": "K",
+                "operating": list(CL03_LIMITS["thermal_margin_K"]),
+                "alert_low": CL03_LIMITS["thermal_margin_alert_low_K"],
+                "note": (f"AI4I HDF logic: margin under "
+                         f"~{CL03_LIMITS['thermal_margin_floor_K']:.0f} K with nip "
+                         f"drive under ~{CL03_LIMITS['hdf_rpm_ceiling']:.0f} rpm = "
+                         "heat-dissipation failure band"),
+                "provenance": PROVENANCE["cl03_thermal_margin_K"],
+            },
+            "drive_speed_rpm": {"unit": "rpm",
+                                "operating": list(CL03_LIMITS["drive_speed_rpm"])},
+            "drive_torque_Nm": {"unit": "Nm",
+                                "operating": list(CL03_LIMITS["drive_torque_Nm"]),
+                                "trip": CL03_LIMITS["drive_torque_trip_Nm"]},
+            "tool_wear_min": {"unit": "min",
+                              "operating": list(CL03_LIMITS["tool_wear_min"]),
+                              "trip": CL03_LIMITS["tool_wear_trip_min"]},
+        },
+        "provenance": {
+            "thermal_margin_K": PROVENANCE["cl03_thermal_margin_K"],
         },
         "causal_tags": ["HDF", "OSF"],
     },
@@ -96,15 +154,36 @@ MACHINE_SPECS: dict[str, dict[str, Any]] = {
         "human_risk": ("Carbon-black dust exposure and rotor entanglement "
                        "during charging and cleaning."),
         "signals": {
-            "chamber_temp_C": {"unit": "degC", "operating": [30.0, 45.0], "trip": 55.0},
-            "thermal_margin_K": {"unit": "K", "operating": [8.0, 15.0]},
-            "drive_speed_rpm": {"unit": "rpm", "operating": [1200.0, 2900.0]},
-            "drive_torque_Nm": {"unit": "Nm", "operating": [10.0, 70.0], "trip": 76.0,
-                                "note": ("AI4I PWF logic: torque x speed outside the "
-                                         "3.5-9 kW power window = power-failure band")},
-            "tool_wear_min": {"unit": "min", "operating": [0.0, 220.0], "trip": 250.0,
-                              "note": ("AI4I OSF logic: wear x torque beyond ~11,000 "
-                                       "minNm = overstrain band")},
+            "chamber_temp_C": {"unit": "degC",
+                               "operating": list(MX02_LIMITS["chamber_temp_C"]),
+                               "trip": MX02_LIMITS["chamber_temp_trip_C"]},
+            "thermal_margin_K": {"unit": "K",
+                                 "operating": list(MX02_LIMITS["thermal_margin_K"])},
+            "drive_speed_rpm": {"unit": "rpm",
+                                "operating": list(MX02_LIMITS["drive_speed_rpm"])},
+            "drive_torque_Nm": {
+                "unit": "Nm",
+                "operating": list(MX02_LIMITS["drive_torque_Nm"]),
+                "trip": MX02_LIMITS["drive_torque_trip_Nm"],
+                "note": (f"AI4I PWF logic: torque x speed outside the "
+                         f"{MX02_LIMITS['pwf_power_window_kW'][0]}-"
+                         f"{MX02_LIMITS['pwf_power_window_kW'][1]} kW power "
+                         "window = power-failure band"),
+                "provenance": PROVENANCE["mx02_torque_wear"],
+            },
+            "tool_wear_min": {
+                "unit": "min",
+                "operating": list(MX02_LIMITS["tool_wear_min"]),
+                "trip": MX02_LIMITS["tool_wear_trip_min"],
+                "note": (f"AI4I OSF logic: wear x torque beyond "
+                         f"~{MX02_LIMITS['osf_wear_torque_limit_minNm']:.0f} "
+                         "minNm = overstrain band"),
+                "provenance": PROVENANCE["mx02_torque_wear"],
+            },
+        },
+        "provenance": {
+            "drive_torque_Nm": PROVENANCE["mx02_torque_wear"],
+            "tool_wear_min": PROVENANCE["mx02_torque_wear"],
         },
         "causal_tags": ["PWF", "OSF", "TWF"],
     },
@@ -114,6 +193,7 @@ _MODE_TO_TAG = (
     ("bear", "BEARING"), ("vib", "BEARING"),
     ("therm", "HDF"), ("heat", "HDF"), ("hdf", "HDF"),
     ("power", "PWF"), ("pwf", "PWF"),
+    ("press", "PRESSURE"), ("undercure", "PRESSURE"),  # D4-tools-v1
     ("strain", "OSF"), ("osf", "OSF"),
     ("wear", "TWF"), ("twf", "TWF"),
 )
@@ -137,6 +217,15 @@ def _check_signal(name: str, value: float, sig_spec: dict) -> Optional[dict]:
     if op and len(op) == 2:
         lo, hi = op
         if value > hi:
+            # D4-tools-v1: honour the second pressure formulation (">20 bar
+            # normal") — values at/above alt_normal_min are NOT violations.
+            alt_min = sig_spec.get("alt_normal_min")
+            if alt_min is not None and value >= alt_min:
+                return None
+            if alt_min is not None:
+                return {"signal": name, "value": value, "limit": hi,
+                        "kind": ("in the indeterminate gap between the two "
+                                 "source formulations (watch)")}
             return {"signal": name, "value": value, "limit": hi,
                     "kind": "above operating ceiling"}
         if value < lo:
