@@ -56,3 +56,40 @@ secrets.*
 .DS_Store
 Thumbs.db
 desktop.ini
+# Environment — repo is PUBLIC, never commit keys
+.env.local
+.env.*.local
+*.pem
+# Python
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+# Node / Next.js
+node_modules/
+.next/
+out/
+*.tsbuildinfo
+npm-debug.log*
+# Datasets & model weights (large)
+pinn/data/**
+!pinn/data/.gitkeep
+!pinn/data/README.md
+# Demo datasets ARE committed (public benchmarks, needed for a fresh clone to run)
+!pinn/data/train_FD001.txt
+!pinn/data/test_FD001.txt
+!pinn/data/RUL_FD001.txt
+!pinn/data/ai4i2020.csv
+pinn/models/*.pt
+pinn/models/*.pth
+pinn/models/*.ckpt
+# Runtime state
+*.db
+*.db-journal
+# Local case material / scratch (not for the public repo)
+files (1)/
+files (1).zip
+WhatsApp*
+*.jpeg
+rapport socio-economique.docx
+Michelin_Roanne_Site_Selection_Dossier.pdf
+# OS / editor
