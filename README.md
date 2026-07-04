@@ -1,70 +1,40 @@
-# Industrial Cortex
+# Generalized Industrial PINN-MAS
 
-**Predictive maintenance + operations optimization for under-instrumented factories, powered by Physics-Informed Neural Networks (PINNs) and an agent that acts.**
+A factory digital twin split into two layers: a **physical layer** that understands what a machine is actually doing (a PINN, physics-informed neural network — not built in this repo), and an **information layer** that takes whatever the physical layer reports, compresses it, reasons about it, debates the right response, and — critically — can prove after the fact exactly what happened, why, and whether anything is quietly drifting off course.
 
-Built at RAISE Summit Hackathon 2026, Paris — Crusoe Track (Track 3).
+This repo is the information layer. It was built against the architecture described in the team's hackathon planning doc (RAISE Summit 2026, Crusoe track); this README maps the two together honestly, including what isn't built yet.
 
-## The problem
+---
 
-Unplanned downtime in manufacturing is brutally expensive (Toyota builds a car every 57 s — 10 minutes of line stoppage ≈ €200k lost). Classic predictive-maintenance solutions require heavy sensor instrumentation and produce alerts only engineers can interpret. Most factories are under-instrumented and won't pay to retrofit sensors everywhere.
+## 1. The two layers
 
-## Our approach
+| Layer | Role | Status here |
+|---|---|---|
+| **Physical layer (PINN)** | Understands the machine's real physical state from sensor data — the sensors plus the physical intuition of an experienced technician | **Not built.** Represented by `main.py`'s synthetic telemetry generator standing in for whatever a real PINN would emit |
+| **Information layer** | Takes that physics-informed reading, compresses it, reasons over it, debates the right response with the operator kept in charge, and can prove its own integrity after the fact | **Built — this repo** |
 
-A **PINN** embeds the physics (vibration, thermal, fatigue equations) directly into training. It is penalized when it contradicts physical law, so it works reliably with **few sensors and little failure history**, and can infer the state of unmeasured locations (measure 5 points, compute the other 95 through the equations).
+The hackathon doc's vision is "a model that understands the physics, supervised by an AI agent that talks to the operator in plain language, justifies its decisions, and always leaves the human in charge." The physics half is out of scope here. Everything from the moment physics-derived telemetry arrives onward — compression, reasoning, debate, audit — is what's implemented.
 
-One physical model, two uses:
+---
 
-1. **Failure prediction** — when the real machine deviates from the physically expected behavior, that deviation is the early degradation signal → "this bearing fails in ~40h".
-2. **OPEX optimization** — the same model finds the operating point that maximizes output while minimizing cost, and acts preventively (cooling before overheating is cheaper than recovering a hot system).
-
-## The agent (Crusoe layer)
-
-An LLM on **Crusoe Managed Inference** continuously reads the physical twin's state (JSON every ~5 s from the local PINN engine) and translates it into concrete advisories a non-technical operator can understand, question, and **override** in the moment ("Press 3, bearing degrading, intervene before 2 pm"). The agent learns from overrides. Advisories are voiced via **Gradium TTS** — factory operators have their hands busy.
-
-Two-tier model architecture: a large model (Nemotron 3 Ultra 550B) for important decisions, a fast one (DeepSeek V4 Flash) for the continuous loop.
-
-**This is not a dashboard.** The 3D view is how the agent perceives; the product is an agent that predicts, advises, triggers, and learns from operator overrides.
-
-## Architecture
+## 2. System architecture
 
 ```
-industrial-cortex/
-├── frontend/     Next.js + React Three Fiber — 3D production line, health states, advisory UI + override
-├── backend/      FastAPI — agent loop + API
-│   ├── agent/    Crusoe calls, advisory logic
-│   └── api/      REST/WebSocket endpoints to the frontend
-├── pinn/         PINN engine (PyTorch) — physical twin + cascade graph
-│   ├── data/     run-to-failure datasets (gitignored if large)
-│   └── models/
-├── docs/         architecture, decisions, pitch notes
-└── scripts/      setup, dataset download
-```
-
-PINN + cascade graph run locally; LLM reasoning runs on Crusoe.
-
-## Validation data
-
-Public run-to-failure bearing/machine datasets: XJTU-SY, FEMTO/PRONOSTIA (IEEE PHM 2012), IMS/NASA, KAIST 2024 (CC BY), CWRU, Ferrara. These run until actual failure, so the demo can show a prediction come true.
-
-## Setup
-
-```bash
-cp .env.example .env   # fill in your own keys — never commit .env
-# frontend
-cd frontend && npm install && npm run dev
-# backend
-cd backend && pip install -r requirements.txt && uvicorn main:app --reload
-```
-
-## Team
-
-- **Alberto** — idea lead, physics (nuclear background), pitch
-- **PhD teammate** — PINN engine (12 months of PINN research)
-- **Tim** — ML/physics
-- **Teammate 4** — ML/physics
-- **Eric** — full-stack, 3D frontend, demo, devops
-
-## Hackathon compliance
-
-- Public repo, **New Work Only**: all code written during the event (pre-event prep limited to this structure and configs).
-- No API keys in the repo — see `.env.example`.
+                                PHYSICAL LAYER (external, not built here)
+                            Upstream PINN — produces telemetry, signs each
+                                   payload with HMAC before sending it
+                                                  │
+                    ┌─────────────────────────────┼─────────────────────────────┐
+                    ▼                              ▼                              ▼
+         ┌────────────────────┐        ┌────────────────────┐        ┌────────────────────┐
+         │ FeedstockCompound-  │        │ ContinuousExtrusion │        │ ThermalVesselNode   │
+         │ ingNode             │        │ Node                │        │                     │
+         │ (EdgeMachineAgent)  │        │                     │        │                     │
+         │                     │        │                     │        │                     │
+         │ 1. verify HMAC      │        │ 1. verify HMAC      │        │ 1. verify HMAC      │
+         │ 2. CCCL 3-pass prune│        │ 2. CCCL 3-pass prune│        │ 2. CCCL 3-pass prune│
+         │ 3. seal crit. values│        │ 3. seal crit. values│        │ 3. seal crit. values│
+         │ 4. archive raw data │        │ 4. archive raw data │        │ 4. archive raw data │
+         └──────────┬──────────┘        └──────────┬──────────┘        └──────────┬──────────┘
+                    │ claim                        │ claim                        │ claim
+                    └──────�
