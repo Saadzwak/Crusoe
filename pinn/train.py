@@ -107,11 +107,16 @@ def build_rul(args) -> dict:
     X, Y = d["X_train"], d["Y_train"]
     if args.smoke:
         X, Y = X[:2000], Y[:2000]
+    knee = d["knee_mask"]
+    if args.smoke:
+        knee = knee[:2000]
     rng = np.random.default_rng(2)
     idx = rng.permutation(len(X))
     n_val = int(0.1 * len(X))
-    print(f"[rul] C-MAPSS {len(X)} windows from {d['n_units_train']} units")
+    print(f"[rul] C-MAPSS {len(X)} windows from {d['n_units_train']} units "
+          f"(knee-masked physics: {float(knee.mean()):.0%} of timesteps below knee)")
     return {"X": torch.from_numpy(X), "Y": torch.from_numpy(Y),
+            "knee": torch.from_numpy(knee),
             "X_test": torch.from_numpy(d["X_test"]),
             "rul_test": torch.from_numpy(d["rul_test"]),
             "train": idx[n_val:], "val": idx[:n_val]}
@@ -151,6 +156,12 @@ def batches(indices: np.ndarray, batch_size: int, rng: np.random.Generator):
         yield order[s:s + batch_size]
 
 
+def press_extras(d: dict, idx) -> dict:
+    """Per-batch extras the physics-integrated pressure head needs."""
+    return {"dt": d["dt"][idx], "mask_ramp": d["mask_ramp"][idx],
+            "mask_hold": d["mask_hold"][idx], "mask_release": d["mask_release"][idx]}
+
+
 def head_step(model: MHPinn, head: str, data: dict, bidx: np.ndarray) -> dict:
     if head == "vibration":
         out = model("vibration", data["X"][bidx])
@@ -180,9 +191,10 @@ def head_step(model: MHPinn, head: str, data: dict, bidx: np.ndarray) -> dict:
                                     data["y"][bidx][:, 1])
     if head == "rul":
         out = model("rul", data["X"][bidx])
-        return L.rul_loss(out, data["Y"][bidx], lambda_phys=RUL_LAMBDA_PHYS)
+        return L.rul_loss(out, data["Y"][bidx], lambda_phys=RUL_LAMBDA_PHYS,
+                          below_knee=data["knee"][bidx])
     if head == "pressure":
-        out = model("pressure", data["X"][bidx])
+        out = model("pressure", data["X"][bidx], extras=press_extras(data, bidx))
         batch = {k: (v[bidx] if isinstance(v, torch.Tensor) else v)
                  for k, v in data.items() if k not in ("train", "val")}
         return L.pressure_loss(out, batch)
@@ -235,7 +247,7 @@ def quick_val_metrics(model: MHPinn, tasks: dict) -> dict:
         m["rul_test_rmse"] = float(torch.sqrt(torch.mean((rul_hat - d["rul_test"]) ** 2)))
     if "pressure" in tasks:
         d, v = tasks["pressure"], tasks["pressure"]["val"]
-        out = model("pressure", d["X"][v])
+        out = model("pressure", d["X"][v], extras=press_extras(d, v))
         m["pressure_anom_acc"] = float(((torch.sigmoid(out["anomaly_logit"]) > 0.5)
                                         .float() == d["y"][v]).float().mean())
         m["alpha_end_mae"] = float((out["alpha_end"] - d["alpha_end"][v]).abs().mean())
@@ -431,21 +443,29 @@ def evaluate(model: MHPinn, tasks: dict) -> dict:
     if "rul" in tasks:
         d = tasks["rul"]
         rul_hat = model("rul", d["X_test"])["rul_seq"][:, -1]
+        # Monotonicity checked where it physically applies (Step-7): below the
+        # per-unit OBSERVABLE degradation knee, not the conventional 125 cap.
         vout = model("rul", d["X"][d["val"]])["rul_seq"]
         vtgt = d["Y"][d["val"]]
-        below = vtgt[:, 1:] < 124.5
-        diffs = (vout[:, 1:] - vout[:, :-1])[below]
+        below_knee = d["knee"][d["val"]][:, 1:]
+        below_cap = vtgt[:, 1:] < 124.5
+        diffs_knee = (vout[:, 1:] - vout[:, :-1])[below_knee]
+        diffs_cap = (vout[:, 1:] - vout[:, :-1])[below_cap]
         report["rul"] = {
             "test_RMSE_cycles_(capped_target)": round(
                 float(torch.sqrt(torch.mean((rul_hat - d["rul_test"]) ** 2))), 2),
             "pred_range": [round(float(rul_hat.min()), 1), round(float(rul_hat.max()), 1)],
-            "mean_dRUL_per_cycle_below_cap_(should_be_-1)": round(float(diffs.mean()), 3),
-            "frac_increasing_steps_below_cap": round(float((diffs > 0).float().mean()), 3),
+            "mean_dRUL_below_KNEE_(constraint_region,_should_be_-1)":
+                round(float(diffs_knee.mean()), 3),
+            "frac_increasing_steps_below_knee":
+                round(float((diffs_knee > 0).float().mean()), 3),
+            "mean_dRUL_below_cap125_(legacy_comparison)":
+                round(float(diffs_cap.mean()), 3),
         }
 
     if "pressure" in tasks:
         d, v = tasks["pressure"], tasks["pressure"]["val"]
-        out = model("pressure", d["X"][v])
+        out = model("pressure", d["X"][v], extras=press_extras(d, v))
         p_anom = torch.sigmoid(out["anomaly_logit"])
         y = d["y"][v]
         a_hat, a_true = out["alpha_end"], d["alpha_end"][v]
@@ -457,7 +477,7 @@ def evaluate(model: MHPinn, tasks: dict) -> dict:
         # under-cure direction but halves the amplitude). Applied to val only;
         # no leakage. Coefficients persisted for inference use.
         tr = d["train"]
-        out_tr = model("pressure", d["X"][tr])
+        out_tr = model("pressure", d["X"][tr], extras=press_extras(d, tr))
         lt = d["y"][tr] > 0
         fit = np.polyfit(out_tr["alpha_end"][lt].numpy(),
                          d["alpha_end"][tr][lt].numpy(), 1)
@@ -540,7 +560,7 @@ def main():
     report = evaluate(model, tasks)
     demo = virtual_sensor_demo(model, tasks, RUNS_DIR)
     report["virtual_sensor_demo"] = demo
-    print("\n===== v1 evaluation =====")
+    print("\n===== evaluation =====")
     print(json.dumps(report, indent=2))
 
     torch.save(model.state_dict(), RUNS_DIR / "mh_pinn_v1.pt")

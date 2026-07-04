@@ -74,24 +74,32 @@ def thermal_loss(out: dict, y: torch.Tensor, raw: torch.Tensor,
 
 # -------------------------------------------------------------------- RUL ----
 def rul_loss(out: dict, y_seq: torch.Tensor, lambda_phys: float = 0.1,
-             rul_scale: float = 125.0) -> dict:
+             rul_scale: float = 125.0,
+             below_knee: torch.Tensor | None = None) -> dict:
     """MSE on per-timestep RUL + degradation-monotonicity physics term.
 
-    Physics term (pinn.physics.rul), piecewise like the target itself:
-    - below the cap (degradation observable): RUL[t+1] - RUL[t] must be -1
+    Physics term (pinn.physics.rul), piecewise like the DATA supports
+    (Step-7 knee analysis, runs/v2/stress_test.json):
+    - below the unit's OBSERVABLE degradation knee (median 92 cycles on
+      FD001, not the conventional 125 cap): RUL[t+1] - RUL[t] must be -1
       (irreversible damage, cycle clock);
-    - in the capped early-life region the true slope is 0, so forcing -1
-      there would fight the data term — we only require non-INCREASE
-      (relu(diff)^2), i.e. RUL never goes back up.
+    - everywhere else (flat-sensor early life): only non-INCREASE is
+      required (relu(diff)^2) — enforcing -1 where sensors are flat asked
+      the model to predict an unobservable decline.
+    `below_knee` [B, T] comes from the loader's per-unit two-segment fit;
+    without it, falls back to the below-cap mask (pre-Step-7 behavior).
     Both terms normalized by the cap so they share scale.
     """
     rul = out["rul_seq"] / rul_scale
     target = y_seq / rul_scale
     data = F.mse_loss(rul, target)
     diffs = (out["rul_seq"][:, 1:] - out["rul_seq"][:, :-1]) / rul_scale
-    below_cap = (y_seq[:, 1:] < rul_scale - 0.5).float()
-    phys = (below_cap * (diffs + 1.0 / rul_scale) ** 2
-            + (1.0 - below_cap) * F.relu(diffs) ** 2).mean()
+    if below_knee is not None:
+        below = below_knee[:, 1:].float()
+    else:
+        below = (y_seq[:, 1:] < rul_scale - 0.5).float()
+    phys = (below * (diffs + 1.0 / rul_scale) ** 2
+            + (1.0 - below) * F.relu(diffs) ** 2).mean()
     return {"data": data, "phys": phys, "total": data + lambda_phys * phys}
 
 
@@ -158,15 +166,26 @@ def fe_recon_loss(out: dict, fe_bands_true: torch.Tensor, fe_rms_true: torch.Ten
 
 
 # --------------------------------------------------------------- pressure ----
-def pressure_loss(out: dict, batch: dict, lambda_phys: float = 0.2,
+def pressure_loss(out: dict, batch: dict, lambda_params: float = 1.0,
                   lambda_recon: float = 1.0) -> dict:
-    """[SYNTHETIC-data head] anomaly BCE + healthy-cycle recon + ODE residual.
+    """[SYNTHETIC-data head] v2 — physics-integrated reconstruction.
 
-    - recon MSE only on NOMINAL cycles: the head learns the healthy trace.
-    - ODE residual (pinn.physics.curing_press) on the reconstruction for ALL
-      cycles, using each cycle's known generation params (training-time
-      physics): ramp dP/dt=(P_set-P)/tau_r, hold dP/dt=0, release dP/dt=-P/tau_rel.
-      Finite differences on the token grid (dt_token = 8 * dt_grid).
+    The finite-difference ODE residual of v1 is GONE: it was measured
+    vacuously satisfied (grad ratio 4e-4, docs/v1_physics_diagnosis.md).
+    The physics now lives in the forward pass (PressureHead integrates the
+    cycle ODE with its own estimated parameters), and the "phys" term becomes
+    the PARAMETER-ESTIMATION error — supervised with the generator's true
+    per-cycle (P_set, tau_ramp, tau_release), a luxury only possible because
+    this head's data is synthetic and labeled as such.
+
+    - anomaly BCE (mild pos_weight ~ neg/pos at 35% anomalous; the degeneracy
+      fix is architectural — residual-stat features, see PressureHead).
+    - recon MSE on NOMINAL cycles between the ODE-integrated nominal and the
+      observed trace (meaningful per cycle now — v1's canonical-average recon
+      plateaued at ~4.4 bar RMSE by construction).
+    - depth-weighted alpha_end MSE: nominal cycles cluster at ~0.985 and
+      dominate a plain MSE, hiding the rare deep under-cures — the one output
+      that must never be missed. Weight ~1 (cured) -> ~9 (alpha 0.73).
     """
     recon = out["pressure_recon"]                       # [B, K] tokens
     frame = batch["frame"]                              # 8
@@ -175,38 +194,22 @@ def pressure_loss(out: dict, batch: dict, lambda_phys: float = 0.2,
     p_obs_tok = p_obs[:, : k * frame].reshape(p_obs.shape[0], k, frame).mean(dim=2)
     nominal = batch["y"] == 0
 
-    # Mild pos_weight (~neg/pos at 35% anomalous). The real degeneracy fix is
-    # architectural — the head classifies from the physics residual, see
-    # PressureHead — 2.5 overshot to all-anomalous in the second v1 run.
     data_anom = F.binary_cross_entropy_with_logits(
         out["anomaly_logit"], batch["y"],
         pos_weight=torch.tensor(1.8, device=recon.device))
     data_recon = F.mse_loss(recon[nominal], p_obs_tok[nominal]) if nominal.any() \
         else torch.zeros((), device=recon.device)
 
-    dt_tok = batch["dt"].unsqueeze(1) * frame           # [B,1] seconds per token
-    dpdt = (recon[:, 1:] - recon[:, :-1]) / dt_tok
-    def tok_mask(m):
-        mt = m[:, : k * frame].reshape(m.shape[0], k, frame).float().mean(dim=2) > 0.5
-        return mt[:, :-1]
-    rhs = torch.zeros_like(dpdt)
-    ramp, hold, rel = tok_mask(batch["mask_ramp"]), tok_mask(batch["mask_hold"]), tok_mask(batch["mask_release"])
-    p_left = recon[:, :-1]
-    rhs = torch.where(ramp, (batch["p_set"].unsqueeze(1) - p_left) / batch["tau_ramp"].unsqueeze(1), rhs)
-    rhs = torch.where(rel, -p_left / batch["tau_release"].unsqueeze(1), rhs)
-    # hold: rhs stays 0
-    phys = F.mse_loss(dpdt, rhs)
+    # Physics-parameter estimation vs the generator's ground truth, each
+    # scaled to O(1): P_set ~ /2 bar, taus ~ /10 s.
+    true_params = torch.stack([batch["p_set"], batch["tau_ramp"],
+                               batch["tau_release"]], dim=1)
+    scale = torch.tensor([2.0, 10.0, 10.0], device=recon.device)
+    phys = F.mse_loss(out["cycle_params"] / scale, true_params / scale)
 
-    # Final degree of cure (SYNTHETIC target from Kamal-Sourour integration).
-    # alpha_end lives in ~[0.73, 0.99]; x10 scaling puts its MSE on the same
-    # order as the other terms (magnitude-balanced fixed weighting, see docs).
-    # Depth-weighted: nominal cycles cluster at ~0.985 and dominated the plain
-    # MSE, letting the head miss the rare DEEP under-cures (0/3 caught in the
-    # first v1 run) — the one output that must never be missed. Weight grows
-    # ~1 (fully cured) -> ~9 (alpha 0.73).
     a_true = batch["alpha_end"]
     w = 1.0 + 30.0 * (0.99 - a_true).clamp(min=0.0)
     data_alpha = (w * (out["alpha_end"] * 10.0 - a_true * 10.0) ** 2).mean()
 
-    total = data_anom + lambda_recon * data_recon + data_alpha + lambda_phys * phys
+    total = data_anom + lambda_recon * data_recon + data_alpha + lambda_params * phys
     return {"data": data_anom + data_recon + data_alpha, "phys": phys, "total": total}

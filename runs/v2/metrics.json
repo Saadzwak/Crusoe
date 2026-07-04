@@ -1,0 +1,73 @@
+{
+  "vibration": {
+    "val_accuracy_4class": 0.9781,
+    "sample": {
+      "true_class": "OR",
+      "pred_class": "OR"
+    },
+    "ims_health_corr_with_lifetime": 0.992
+  },
+  "fatigue": {
+    "damage_corr_with_lifetime": 0.992,
+    "final_window_damage_D": 0.935,
+    "true_lifetime_position": 0.997,
+    "hours_to_replacement_at_D0.9_(Basquin/Miner)": 0.0,
+    "note": "N_f = 4.8e8 cycles = geometric mean of the 3 REAL IMS failures; sigma_f' family in pinn/physics/fatigue.py"
+  },
+  "thermal": {
+    "val_recall_machine_failure@0.5": 0.842,
+    "val_mean_pred_on_healthy": 0.0981,
+    "sample_HDF_row_pred_MF_HDF_PWF": [
+      0.967,
+      0.997,
+      0.007
+    ]
+  },
+  "rul": {
+    "test_RMSE_cycles_(capped_target)": 13.74,
+    "pred_range": [
+      11.7,
+      124.5
+    ],
+    "mean_dRUL_below_KNEE_(constraint_region,_should_be_-1)": -1.283,
+    "frac_increasing_steps_below_knee": 0.247,
+    "mean_dRUL_below_cap125_(legacy_comparison)": -0.99
+  },
+  "pressure": {
+    "provenance": "SYNTHETIC \u2014 generated curing cycles, never measured data",
+    "val_anomaly_accuracy@0.5": 0.869,
+    "alpha_end_MAE": 0.0106,
+    "alpha_corr_on_leaky_cycles": 0.894,
+    "under_cure_detection_(alpha<0.90)": {
+      "n_true_under_cured": 6,
+      "n_caught_raw": 3,
+      "n_caught_calibrated": 3,
+      "n_false_alarms_calibrated": 1
+    },
+    "alpha_calibration_(pred_to_true,_fit_on_train)": [
+      1.1112,
+      -0.098
+    ],
+    "recon_peak_bar": 17.1
+  },
+  "virtual_sensor_demo": {
+    "ai4i_process_temp": {
+      "withheld_sensor": "Process temperature [K] (input column masked)",
+      "n_val_rows": 2000,
+      "MAE_K": 0.559,
+      "true_range_K": [
+        306.0,
+        313.6
+      ],
+      "MAE_as_pct_of_range": 7.4,
+      "provenance": "SIMULATED ground truth (AI4I)"
+    },
+    "cwru_fan_end": {
+      "withheld_sensor": "Fan-end accelerometer (REAL, never a model input)",
+      "n_val_windows": 685,
+      "band_energy_MAE": 0.0189,
+      "rms_median_relative_error_pct": 12.8,
+      "provenance": "REAL measured ground truth (CWRU)"
+    }
+  }
+}

@@ -123,44 +123,76 @@ class RulHeadMonotone(nn.Module):
 
 
 class PressureHead(nn.Module):
-    """Nominal-pressure reconstruction + anomaly logit + final degree of cure.
+    """v2 (Step-7) — physics-INTEGRATED nominal reconstruction.
 
-    The reconstruction learns what a HEALTHY cycle looks like (trained on
-    nominal cycles + constrained by the curing-cycle ODE). Anomaly and
-    alpha_end are then read from the PHYSICS RESIDUAL — statistics of
-    (observed - healthy reconstruction) — concatenated with the pooled hidden
-    state. Rationale (learned in the first two v1 runs, where a plain
-    pooled-hidden logit collapsed to a degenerate majority-class predictor in
-    both directions): deviation from the ODE-consistent healthy trace IS the
-    leak signature; giving the classifier the residual directly is the
-    PINN-native detector, not a weighting trick. alpha_end estimates the FINAL
-    DEGREE OF CURE — the quantity no production sensor measures
-    (Kamal-Sourour kinetics, SYNTHETIC supervision).
+    v1's finite-difference ODE residual was measured "vacuously satisfied"
+    (shared-body gradient ratio 4e-4, runs/v1/diagnosis.json): an average
+    canonical cycle obeys the ODE *shape* without tracking any individual
+    cycle. v2 gives the ODE more structure instead of a bolt-on: the head
+    ESTIMATES each cycle's physical parameters (P_set, tau_ramp, tau_release)
+    from the observed trace, and the nominal reconstruction is produced by
+    INTEGRATING the curing-cycle ODE with those parameters. The ODE is
+    piecewise linear, so each token step has the closed-form solution
+        ramp:    P+ = P_set + (P - P_set) * exp(-dt/tau_ramp)
+        hold:    P+ = P
+        release: P+ = P * exp(-dt/tau_release)
+    — exact, unconditionally stable (a plain Euler step would blow up at
+    dt_token ~ 56 s > tau ~ 25 s), and differentiable end-to-end.
+
+    Anomaly and alpha_end read from residual statistics of
+    (observed - integrated nominal), kept from the v1 degeneracy fix; the
+    residual is now per-cycle-meaningful because the reconstruction is.
+    alpha_end estimates the FINAL DEGREE OF CURE — the quantity no production
+    sensor measures (Kamal-Sourour kinetics, SYNTHETIC supervision).
     """
+
+    TAU_RAMP_FLOOR = 3.0     # [s] keep taus off zero for exp stability
+    TAU_RELEASE_FLOOR = 2.0
 
     def __init__(self, hidden: int):
         super().__init__()
-        self.recon = nn.Linear(hidden, 1)
+        self.params = nn.Linear(hidden, 3)   # -> P_set, tau_ramp, tau_release
         n_resid_stats = 4
         self.anom = nn.Linear(hidden + n_resid_stats, 1)
         self.alpha = nn.Linear(hidden + n_resid_stats, 1)
-        # Start reconstructions near the documented steam envelope (~17 bar)
-        # rather than ~0.7 bar — same few-epoch convergence rationale as RulHead.
-        nn.init.constant_(self.recon.bias, 17.0)
+        with torch.no_grad():
+            # Start at the documented envelope midpoints: ~17.5 bar,
+            # tau_ramp ~ 27 s, tau_release ~ 12 s (softplus(x) ~= x here).
+            self.params.bias.copy_(torch.tensor([17.5, 24.0, 10.0]))
         # Nominal cycles cure to ~0.99: start alpha near there (sigmoid(3)=0.95).
         nn.init.constant_(self.alpha.bias, 3.0)
 
-    def forward(self, h_seq: torch.Tensor, p_obs_tok: torch.Tensor) -> dict:
-        recon = nn.functional.softplus(self.recon(h_seq)).squeeze(-1)   # [B, K]
+    def forward(self, h_seq: torch.Tensor, p_obs_tok: torch.Tensor,
+                dt_tok: torch.Tensor, ramp_tok: torch.Tensor,
+                hold_tok: torch.Tensor, rel_tok: torch.Tensor) -> dict:
+        pooled_h = h_seq.mean(dim=1)
+        pr = nn.functional.softplus(self.params(pooled_h))
+        p_set = pr[:, 0]
+        tau_r = pr[:, 1] + self.TAU_RAMP_FLOOR
+        tau_rel = pr[:, 2] + self.TAU_RELEASE_FLOOR
+
+        e_ramp = torch.exp(-dt_tok / tau_r)          # per-cycle constants
+        e_rel = torch.exp(-dt_tok / tau_rel)
+        p = torch.zeros_like(p_set)
+        recon_steps = []
+        for k in range(p_obs_tok.shape[1]):
+            p_ramp = p_set + (p - p_set) * e_ramp
+            p_next = torch.where(ramp_tok[:, k], p_ramp,
+                                 torch.where(rel_tok[:, k], p * e_rel, p))
+            p = p_next
+            recon_steps.append(p)
+        recon = torch.stack(recon_steps, dim=1)      # [B, K]
+
         resid = p_obs_tok - recon
-        k = resid.shape[1]
-        late = resid[:, k // 3:]          # leak lives mid-hold onward
+        kk = resid.shape[1]
+        late = resid[:, kk // 3:]                    # leak lives mid-hold onward
         stats = torch.stack([resid.mean(dim=1),
                              resid.min(dim=1).values,
                              resid.abs().max(dim=1).values,
                              late.mean(dim=1)], dim=1)
-        pooled = torch.cat([h_seq.mean(dim=1), stats], dim=1)
+        pooled = torch.cat([pooled_h, stats], dim=1)
         return {"pressure_recon": recon,
+                "cycle_params": torch.stack([p_set, tau_r, tau_rel], dim=1),
                 "anomaly_logit": self.anom(pooled).squeeze(-1),
                 "alpha_end": torch.sigmoid(self.alpha(pooled)).squeeze(-1)}
 
@@ -216,7 +248,11 @@ class FeReconHead(nn.Module):
 
 
 class MHPinn(nn.Module):
-    def __init__(self, d_model: int = 64, hidden: int = 96, num_layers: int = 1,
+    # hidden 96 -> 128 (Step-7, A2): the measured multi-task "interference"
+    # is capacity dilution, NOT gradient conflict (all pairwise task-gradient
+    # cosines ~ 0 on the shared body, runs/v2/stress_test.json) — so the
+    # remedy is representation budget, not gradient surgery.
+    def __init__(self, d_model: int = 64, hidden: int = 128, num_layers: int = 1,
                  vib_window: int = 2048, pressure_seq: int = 256,
                  rul_monotone: bool = False):
         super().__init__()
@@ -238,17 +274,24 @@ class MHPinn(nn.Module):
         })
         self.pressure_frame = 8
 
-    def forward(self, head: str, x: torch.Tensor) -> dict:
+    def forward(self, head: str, x: torch.Tensor, extras: dict | None = None) -> dict:
         assert head in HEADS, f"unknown head {head!r}"
         tokens = self.adapters[ADAPTER_ALIASES.get(head, head)](x)
         if tokens.dim() == 2:                            # single tabular token
             tokens = tokens.unsqueeze(1)
         h_seq, _ = self.body(tokens)
         if head == "pressure":
-            # Token-averaged observed pressure, matching the head's recon grid,
-            # so the head can compute the physics residual (obs - healthy).
+            # Tokenize observed pressure, phase masks and time step to the
+            # recon grid; the head integrates the cycle ODE on that grid.
+            assert extras is not None, "pressure head needs extras: dt + phase masks"
             f = self.pressure_frame
-            k = x.shape[1] // f
-            p_obs_tok = x[:, : k * f, 0].reshape(x.shape[0], k, f).mean(dim=2)
-            return self.heads[head](h_seq, p_obs_tok)
+            b, k = x.shape[0], x.shape[1] // f
+            p_obs_tok = x[:, : k * f, 0].reshape(b, k, f).mean(dim=2)
+
+            def tok(m: torch.Tensor) -> torch.Tensor:
+                return m[:, : k * f].reshape(b, k, f).float().mean(dim=2) > 0.5
+
+            return self.heads[head](h_seq, p_obs_tok, extras["dt"] * f,
+                                    tok(extras["mask_ramp"]), tok(extras["mask_hold"]),
+                                    tok(extras["mask_release"]))
         return self.heads[head](h_seq)

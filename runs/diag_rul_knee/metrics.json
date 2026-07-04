@@ -1,0 +1,13 @@
+{
+  "rul": {
+    "test_RMSE_cycles_(capped_target)": 15.66,
+    "pred_range": [
+      12.4,
+      125.2
+    ],
+    "mean_dRUL_below_KNEE_(constraint_region,_should_be_-1)": -1.271,
+    "frac_increasing_steps_below_knee": 0.212,
+    "mean_dRUL_below_cap125_(legacy_comparison)": -1.004
+  },
+  "virtual_sensor_demo": {}
+}

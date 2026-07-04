@@ -1,0 +1,20 @@
+{
+  "schema_version": "0.1-draft",
+  "machine_id": "curing_press_01",
+  "timestamp": "2026-07-04T19:55:57.302208+00:00",
+  "head_outputs": {
+    "rul": {
+      "test_RMSE_cycles_(capped_target)": 15.66,
+      "pred_range": [
+        12.4,
+        125.2
+      ],
+      "mean_dRUL_below_KNEE_(constraint_region,_should_be_-1)": -1.271,
+      "frac_increasing_steps_below_knee": 0.212,
+      "mean_dRUL_below_cap125_(legacy_comparison)": -1.004
+    },
+    "virtual_sensor_demo": {}
+  },
+  "provenance": {},
+  "hmac_signature": "ebfd2366bbe21424bc9ceb92df3c387d61d0da1561c390da49b14f2aebf0abc5"
+}

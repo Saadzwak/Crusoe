@@ -48,3 +48,29 @@ def piecewise_linear_rul(cycles: np.ndarray, n_total: int,
     """RUL target for one unit given its total lifetime in cycles."""
     cycles = np.asarray(cycles, dtype=float)
     return np.minimum(cap, n_total - cycles)
+
+
+def estimate_knee_rul(health: np.ndarray, smooth: int = 5,
+                      margin: int = 8) -> float:
+    """Cycles remaining at the degradation knee of one unit (Step-7 finding).
+
+    Two-segment fit (flat mean, then line) on a composite health index;
+    returns the RUL at the breakpoint. Measured on FD001 train (100 units):
+    median 92 cycles, IQR [79, 108], range [63, 179] — the conventional 125
+    cap sits at the ~90th percentile, i.e. for most engines the target starts
+    decreasing ~30 cycles before the sensors show anything. The slope=-1
+    physics constraint is therefore only enforced below min(knee, cap), where
+    degradation is observable AND the target actually decreases.
+    """
+    h = np.convolve(np.asarray(health, dtype=float),
+                    np.ones(smooth) / smooth, mode="valid")
+    n = len(h)
+    best_sse, best_t = np.inf, margin
+    x_all = np.arange(n)
+    for t in range(margin, n - margin):
+        sse = float(((h[:t] - h[:t].mean()) ** 2).sum())
+        a, b = np.polyfit(x_all[t:], h[t:], 1)
+        sse += float(((h[t:] - (a * x_all[t:] + b)) ** 2).sum())
+        if sse < best_sse:
+            best_sse, best_t = sse, t
+    return float(len(health) - best_t)
