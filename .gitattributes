@@ -1,0 +1,7 @@
+# Vendored third-party JS: bytes are sacred — SRI (integrity) hashes in
+# support.js are computed over the ORIGINAL upstream bytes. autocrlf rewriting
+# broke React loading once (SHA-384 mismatch -> scripts blocked); never again.
+backend/agent/static/vendor/** -text
+backend/agent/static/support.js -text
+backend/agent/static/index.html -text
+backend/agent/static/press-line.html -text
