@@ -8,11 +8,14 @@
 __pycache__/
 *.py[cod]
 *.egg-info/
+.eggs/
+build/
 .venv/
 venv/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+.ipynb_checkpoints/
 
 # Node / Next.js
 node_modules/
@@ -22,18 +25,47 @@ dist/
 *.tsbuildinfo
 npm-debug.log*
 
-# Datasets & model weights (large)
+# RAW datasets at repo root — ANCHORED. (The old unanchored `data/` silently
+# ignored the pinn/data python package for five commits; /data/ fixes that.)
+/data/
+/datasets/
+/raw/
+*.zip
+*.tar
+*.tar.gz
+*.7z
+*.parquet
+*.h5
+*.hdf5
+*.mat
+*.npy
+*.npz
+
+# Model / artifact binaries (targeted demo exceptions below)
+*.pt
+*.pth
+*.ckpt
+*.onnx
+*.pkl
+*.joblib
+mlruns/
+wandb/
+
+# pinn/data: the PYTHON PACKAGE (loaders) is tracked; bulk data is not.
 pinn/data/**
+!pinn/data/*.py
 !pinn/data/.gitkeep
 !pinn/data/README.md
-# Demo datasets ARE committed (public benchmarks, needed for a fresh clone to run)
+# Demo stand-in datasets ARE committed (public benchmarks, fresh clone must run)
 !pinn/data/train_FD001.txt
 !pinn/data/test_FD001.txt
 !pinn/data/RUL_FD001.txt
 !pinn/data/ai4i2020.csv
-pinn/models/*.pt
-pinn/models/*.pth
-pinn/models/*.ckpt
+!pinn/data/synthetic_rc07_scenarios.csv
+
+# Trained demo weights: committed ON PURPOSE (team decision — ~0.6 MB, a fresh
+# clone must run the demo without retraining)
+!pinn/models/mh_pinn_v2.pt
 
 # Runtime state
 *.db
@@ -50,8 +82,10 @@ Michelin_Roanne_Site_Selection_Dossier.pdf
 # OS / editor
 .DS_Store
 Thumbs.db
+desktop.ini
 .idea/
 .vscode/
+*.swp
 
 # Local Claude Code settings
 .claude/

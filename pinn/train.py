@@ -563,7 +563,9 @@ def main():
     print("\n===== evaluation =====")
     print(json.dumps(report, indent=2))
 
-    torch.save(model.state_dict(), RUNS_DIR / "mh_pinn_v1.pt")
+    # Versioned name (v2 = current architecture: hidden 128, knee-masked RUL,
+    # integrated pressure ODE); the demo copy lives at pinn/models/mh_pinn_v2.pt.
+    torch.save(model.state_dict(), RUNS_DIR / "mh_pinn_v2.pt")
     (RUNS_DIR / "metrics.json").write_text(json.dumps(report, indent=2))
 
     # Legacy draft payload (v0 shape) + the PRAETOR-contract SignedReading.
