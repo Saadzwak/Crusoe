@@ -53,3 +53,70 @@ def verify_payload(payload: dict, key: bytes) -> bool:
     body = {k: v for k, v in payload.items() if k != "hmac_signature"}
     expected = hmac.new(key, _canonical(body), hashlib.sha256).hexdigest()
     return hmac.compare_digest(expected, payload.get("hmac_signature", ""))
+
+
+# --------------------------------------------------------------------------- #
+# PRAETOR-compatible emission — matches the information layer's LANDED contract
+# (origin/feat/llm-information-layer: backend/agent/schemas.py + hmac_auth.py).
+# Their canonicalization is byte-identical to ours (sorted keys, no whitespace);
+# the difference is shape: signature travels BESIDE the payload
+# (SignedReading{payload, signature}), not inside it.
+# --------------------------------------------------------------------------- #
+
+import os
+
+# Teammate's demo fallback (backend/agent/hmac_auth.py). Real deployments set
+# PINN_HMAC_SECRET in the environment on both sides.
+_PRAETOR_DEMO_SECRET = "praetor-demo-secret-do-not-use-in-prod"
+
+
+def _praetor_secret() -> bytes:
+    return os.environ.get("PINN_HMAC_SECRET", _PRAETOR_DEMO_SECRET).encode("utf-8")
+
+
+def to_praetor_signed_reading(
+    machine_id: str,
+    department: str,
+    epoch: int,
+    signals: dict[str, float],
+    health_index: float,
+    rul_cycles: float | None,
+    residual: float,
+    failure_mode_probs: dict[str, float],
+    note: str = "",
+    timestamp: float | None = None,
+) -> dict:
+    """Emit one SignedReading exactly as backend/agent expects.
+
+    Field semantics pinned by their schemas.py:
+    - health_index: 1.0 = HEALTHY. Our IMS lifetime-position proxy and the
+      fatigue head's damage D run the other way (1.0 = at failure) — callers
+      pass `1 - damage`, never the raw proxy. Inversion bugs here would
+      silently flip every triage decision downstream.
+    - residual: physics-consistency residual, higher = worse — we emit the
+      relevant head's physics-loss residual at inference.
+    - signals: scalar sensor vocabulary for the Curing press (RC-07) per
+      their telemetry_source.py: mould_temp_C, coil_power_kW,
+      vibration_rms_mm_s, pressure_bar.
+    - note: keep neutral wording for healthy readings (their mock triage
+      keys on substrings like "drift"/"critical").
+    """
+    import time as _time
+
+    payload = {
+        "machine_id": machine_id,
+        "department": department,
+        "epoch": int(epoch),
+        "timestamp": float(timestamp if timestamp is not None else _time.time()),
+        "signals": {k: float(v) for k, v in signals.items()},
+        "pinn": {
+            "health_index": max(0.0, min(1.0, float(health_index))),
+            "rul_cycles": None if rul_cycles is None else float(rul_cycles),
+            "residual": float(residual),
+            "failure_mode_probs": {k: float(v) for k, v in failure_mode_probs.items()},
+        },
+        "note": note,
+    }
+    signature = hmac.new(_praetor_secret(), _canonical(payload),
+                         hashlib.sha256).hexdigest()
+    return {"payload": payload, "signature": signature}

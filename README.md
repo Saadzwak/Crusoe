@@ -30,7 +30,8 @@ de 10–15 min).
 
 ```
 .
-├── docs/                     Briefs + justification physique par tête (physics_heads.md)
+├── docs/                     Briefs + physique par tête (physics_heads.md, catégories de
+│                             confiance a/b/c) + seuils d'anomalie (anomaly_thresholds.json)
 ├── pinn/                     Couche physique : le MH-PINN
 │   ├── physics/              Équations gouvernantes (sources + cross-checks anti-erreur)
 │   ├── data/                 Loaders par tête (CWRU, IMS, AI4I, C-MAPSS, pression SYNTHÉTIQUE)

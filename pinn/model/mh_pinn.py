@@ -27,7 +27,16 @@ from __future__ import annotations
 import torch
 from torch import nn
 
-HEADS = ("vibration", "thermal", "rul", "pressure")
+HEADS = ("vibration", "thermal", "rul", "pressure",
+         "fatigue", "thermal_recon", "fe_recon")
+
+# Heads that consume the same input modality share the adapter — the fatigue
+# and fan-end-reconstruction heads read accelerometer windows exactly like the
+# vibration head; masked-input temperature reconstruction reads AI4I rows like
+# the thermal head. Sharing keeps the "one shared physical representation"
+# property of the MH-PINN instead of forking per task.
+ADAPTER_ALIASES = {"fatigue": "vibration", "fe_recon": "vibration",
+                   "thermal_recon": "thermal"}
 
 
 class FrameAdapter(nn.Module):
@@ -89,24 +98,96 @@ class RulHead(nn.Module):
 
 
 class PressureHead(nn.Module):
-    """Per-token nominal-pressure reconstruction + cycle-level anomaly logit.
+    """Nominal-pressure reconstruction + anomaly logit + final degree of cure.
 
     The reconstruction learns what a HEALTHY cycle looks like (trained on
-    nominal cycles + constrained by the curing-cycle ODE); the anomaly logit
-    flags departures such as the injected mid-hold seal leak.
+    nominal cycles + constrained by the curing-cycle ODE). Anomaly and
+    alpha_end are then read from the PHYSICS RESIDUAL — statistics of
+    (observed - healthy reconstruction) — concatenated with the pooled hidden
+    state. Rationale (learned in the first two v1 runs, where a plain
+    pooled-hidden logit collapsed to a degenerate majority-class predictor in
+    both directions): deviation from the ODE-consistent healthy trace IS the
+    leak signature; giving the classifier the residual directly is the
+    PINN-native detector, not a weighting trick. alpha_end estimates the FINAL
+    DEGREE OF CURE — the quantity no production sensor measures
+    (Kamal-Sourour kinetics, SYNTHETIC supervision).
     """
 
     def __init__(self, hidden: int):
         super().__init__()
         self.recon = nn.Linear(hidden, 1)
-        self.anom = nn.Linear(hidden, 1)
+        n_resid_stats = 4
+        self.anom = nn.Linear(hidden + n_resid_stats, 1)
+        self.alpha = nn.Linear(hidden + n_resid_stats, 1)
         # Start reconstructions near the documented steam envelope (~17 bar)
         # rather than ~0.7 bar — same few-epoch convergence rationale as RulHead.
         nn.init.constant_(self.recon.bias, 17.0)
+        # Nominal cycles cure to ~0.99: start alpha near there (sigmoid(3)=0.95).
+        nn.init.constant_(self.alpha.bias, 3.0)
+
+    def forward(self, h_seq: torch.Tensor, p_obs_tok: torch.Tensor) -> dict:
+        recon = nn.functional.softplus(self.recon(h_seq)).squeeze(-1)   # [B, K]
+        resid = p_obs_tok - recon
+        k = resid.shape[1]
+        late = resid[:, k // 3:]          # leak lives mid-hold onward
+        stats = torch.stack([resid.mean(dim=1),
+                             resid.min(dim=1).values,
+                             resid.abs().max(dim=1).values,
+                             late.mean(dim=1)], dim=1)
+        pooled = torch.cat([h_seq.mean(dim=1), stats], dim=1)
+        return {"pressure_recon": recon,
+                "anomaly_logit": self.anom(pooled).squeeze(-1),
+                "alpha_end": torch.sigmoid(self.alpha(pooled)).squeeze(-1)}
+
+
+class FatigueHead(nn.Module):
+    """Miner damage fraction D in [0, 1] from a vibration window.
+
+    D is supervised by lifetime position on the IMS run-to-failure data
+    (exact under constant amplitude: D = t / T_fail) and interpreted at
+    inference through Basquin/Hertz (pinn.physics.fatigue) to produce
+    hours-to-replacement — the "replace before it fails" quantity.
+    """
+
+    def __init__(self, hidden: int):
+        super().__init__()
+        self.out = nn.Linear(hidden, 1)
 
     def forward(self, h_seq: torch.Tensor) -> dict:
-        return {"pressure_recon": nn.functional.softplus(self.recon(h_seq)).squeeze(-1),
-                "anomaly_logit": self.anom(h_seq.mean(dim=1)).squeeze(-1)}
+        return {"damage": torch.sigmoid(self.out(h_seq.mean(dim=1))).squeeze(-1)}
+
+
+class ThermalReconHead(nn.Module):
+    """VIRTUAL SENSOR: reconstruct the (withheld) process temperature [K].
+
+    Input rows have the process-temperature column MASKED; the head must
+    recover it from air temperature + speed + torque + wear, regularized by
+    the AI4I HDF rule evaluated on the reconstruction.
+    """
+
+    def __init__(self, hidden: int):
+        super().__init__()
+        self.out = nn.Linear(hidden, 1)
+        nn.init.constant_(self.out.bias, 310.0)  # AI4I process temp ~305-314 K
+
+    def forward(self, h_seq: torch.Tensor) -> dict:
+        return {"process_temp_K": self.out(h_seq[:, -1]).squeeze(-1)}
+
+
+class FeReconHead(nn.Module):
+    """VIRTUAL SENSOR: reconstruct the (withheld) fan-end accelerometer's
+    physics features — envelope band energies at {BPFO,BPFI,BSF} + RMS —
+    from the drive-end window alone (shared shaft => shared fault kinematics)."""
+
+    def __init__(self, hidden: int):
+        super().__init__()
+        self.bands = nn.Linear(hidden, 3)
+        self.rms = nn.Linear(hidden, 1)
+
+    def forward(self, h_seq: torch.Tensor) -> dict:
+        pooled = h_seq.mean(dim=1)
+        return {"fe_bands": torch.sigmoid(self.bands(pooled)),
+                "fe_rms": nn.functional.softplus(self.rms(pooled)).squeeze(-1)}
 
 
 class MHPinn(nn.Module):
@@ -125,13 +206,23 @@ class MHPinn(nn.Module):
             "thermal": ThermalHead(hidden),
             "rul": RulHead(hidden),
             "pressure": PressureHead(hidden),
+            "fatigue": FatigueHead(hidden),
+            "thermal_recon": ThermalReconHead(hidden),
+            "fe_recon": FeReconHead(hidden),
         })
         self.pressure_frame = 8
 
     def forward(self, head: str, x: torch.Tensor) -> dict:
         assert head in HEADS, f"unknown head {head!r}"
-        tokens = self.adapters[head](x)
+        tokens = self.adapters[ADAPTER_ALIASES.get(head, head)](x)
         if tokens.dim() == 2:                            # single tabular token
             tokens = tokens.unsqueeze(1)
         h_seq, _ = self.body(tokens)
+        if head == "pressure":
+            # Token-averaged observed pressure, matching the head's recon grid,
+            # so the head can compute the physics residual (obs - healthy).
+            f = self.pressure_frame
+            k = x.shape[1] // f
+            p_obs_tok = x[:, : k * f, 0].reshape(x.shape[0], k, f).mean(dim=2)
+            return self.heads[head](h_seq, p_obs_tok)
         return self.heads[head](h_seq)

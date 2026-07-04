@@ -1,0 +1,24 @@
+{
+  "payload": {
+    "machine_id": "RC-07",
+    "department": "Curing",
+    "epoch": 0,
+    "timestamp": 1783187916.00167,
+    "signals": {
+      "mould_temp_C": 195.0,
+      "coil_power_kW": 71.0,
+      "vibration_rms_mm_s": 2.1,
+      "pressure_bar": 15.46
+    },
+    "pinn": {
+      "health_index": 0.123,
+      "rul_cycles": 15.4,
+      "residual": 0.0,
+      "failure_mode_probs": {
+        "bearing_fault": 0.010199999999999987
+      }
+    },
+    "note": "v1 sample \u2014 near-failure snapshot (last IMS window, damage from fatigue head); schema per backend/agent/schemas.py"
+  },
+  "signature": "5384850bcc3e5667613eb67f3c88990bada0787f1bab94ffe48007c13824efea"
+}
