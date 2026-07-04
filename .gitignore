@@ -1,75 +1,27 @@
-# ---- Python ----
-__pycache__/
-*.py[cod]
-*$py.class
-*.so
-.Python
-build/
-dist/
-*.egg-info/
-.eggs/
-
-# ---- Environnements virtuels ----
-.venv/
-venv/
-env/
-ENV/
-.python-version
-
-# ---- Notebooks ----
-.ipynb_checkpoints/
-
-# ---- Données brutes & artefacts ML (ne pas versionner : volumineux, retéléchargeables) ----
-data/
-datasets/
-raw/
-*.zip
-*.tar
-*.tar.gz
-*.7z
-*.parquet
-*.h5
-*.hdf5
-*.mat
-*.npy
-*.npz
-*.pt
-*.pth
-*.ckpt
-*.onnx
-*.pkl
-*.joblib
-mlruns/
-wandb/
-
-# ---- Secrets / config locale ----
-.env
-.env.*
-!.env.example
-*.key
-secrets.*
-
-# ---- Éditeurs / OS ----
-.vscode/
-.idea/
-*.swp
-.DS_Store
-Thumbs.db
-desktop.ini
 # Environment — repo is PUBLIC, never commit keys
+.env
 .env.local
 .env.*.local
 *.pem
+
 # Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+
 # Node / Next.js
 node_modules/
 .next/
 out/
+dist/
 *.tsbuildinfo
 npm-debug.log*
+
 # Datasets & model weights (large)
 pinn/data/**
 !pinn/data/.gitkeep
@@ -82,9 +34,11 @@ pinn/data/**
 pinn/models/*.pt
 pinn/models/*.pth
 pinn/models/*.ckpt
+
 # Runtime state
 *.db
 *.db-journal
+
 # Local case material / scratch (not for the public repo)
 files (1)/
 files (1).zip
@@ -92,4 +46,9 @@ WhatsApp*
 *.jpeg
 rapport socio-economique.docx
 Michelin_Roanne_Site_Selection_Dossier.pdf
+
 # OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
