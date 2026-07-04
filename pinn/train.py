@@ -529,6 +529,10 @@ def main():
     global RUNS_DIR, RUL_LAMBDA_PHYS
     if args.run_dir:
         RUNS_DIR = Path(args.run_dir)
+    elif args.smoke:
+        # Never let a smoke run clobber the committed reference artifacts in
+        # runs/v1 (integration review finding: a --smoke overwrote 7 of them).
+        RUNS_DIR = Path("runs/smoke")
     if args.rul_lambda is not None:
         RUL_LAMBDA_PHYS = args.rul_lambda
 

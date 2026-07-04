@@ -1,0 +1,19 @@
+scenario_id,epoch,machine_id,mould_temp_C,pressure_bar,vibration_rms_mm_s,cycle_min,health_index,rul_cycles,residual,vib_zone,expected_risk,note
+S1,1,RC-07,196.0,17.5,0.9,12.5,0.97,150.0,0.02,A,CLEAR,Nominal steam cure on press RC-07: all curing signals inside the verified envelope.
+S2,2,RC-07,197.0,17.2,2.5,13.0,0.93,140.0,0.05,B,<=WATCH,Steady cure cycles on press RC-07; vibration in the acceptable long-term band.
+S3,3,RC-07,205.0,17.8,5.5,12.8,0.55,60.0,0.28,C,>=HIGH,Vibration rising on press RC-07 mould shoulder bearing over recent cycles; keeping the press under close watch.
+S4,4,RC-07,214.0,15.2,8.2,18.0,0.12,6.0,0.9,D,CRITICAL,Danger on press RC-07: mould overheating and bearing failure imminent — stop-level condition.
+S5,5,RC-07,195.0,14.5,1.0,12.8,0.6,40.0,0.18,A,>=HIGH,"Pressure dropping on press RC-07 steam circuit: cure pressure below the steam-direct band, undercure risk rising cycle over cycle."
+S6,6,RC-07,198.0,17.0,1.05,31.0,0.8,90.0,0.1,A,WATCH|HIGH,"Cycle-time anomaly on press RC-07: cure cycle stretched to 31 minutes, beyond the 30-minute extended ceiling."
+S7,7,RC-07,213.5,15.3,8.1,18.2,0.13,7.0,0.88,D,REJECTED,Danger on press RC-07: mould overheating and bearing failure imminent — stop-level condition.
+S8,10,RC-07,196.0,17.5,0.9,12.5,0.95,,0.03,A,<=WATCH,"Routine cure cycles on press RC-07; vibration inside the acceptable long-term band, mould temperature steady."
+S8,11,RC-07,196.11,17.48,1.16,12.5,0.9333,,0.03,B,<=WATCH,"Routine cure cycles on press RC-07; vibration inside the acceptable long-term band, mould temperature steady."
+S8,12,RC-07,196.22,17.46,1.41,12.5,0.9167,,0.03,B,<=WATCH,"Routine cure cycles on press RC-07; vibration inside the acceptable long-term band, mould temperature steady."
+S8,13,RC-07,196.33,17.43,1.67,12.5,0.9,,0.03,B,<=WATCH,"Routine cure cycles on press RC-07; vibration inside the acceptable long-term band, mould temperature steady."
+S8,14,RC-07,196.44,17.41,1.92,12.5,0.8833,,0.03,B,<=WATCH,"Routine cure cycles on press RC-07; vibration inside the acceptable long-term band, mould temperature steady."
+S8,15,RC-07,196.56,17.39,2.18,12.5,0.8667,,0.03,B,<=WATCH,"Routine cure cycles on press RC-07; vibration inside the acceptable long-term band, mould temperature steady."
+S8,16,RC-07,196.67,17.37,2.43,12.5,0.85,,0.03,B,<=WATCH,"Routine cure cycles on press RC-07; vibration inside the acceptable long-term band, mould temperature steady."
+S8,17,RC-07,196.78,17.34,2.69,12.5,0.8333,,0.03,B,<=WATCH,"Routine cure cycles on press RC-07; vibration inside the acceptable long-term band, mould temperature steady."
+S8,18,RC-07,196.89,17.32,2.94,12.5,0.8167,,0.03,C,<=WATCH,"Routine cure cycles on press RC-07; vibration inside the acceptable long-term band, mould temperature steady."
+S8,19,RC-07,197.0,17.3,3.2,12.5,0.8,,0.03,C,<=WATCH,"Routine cure cycles on press RC-07; vibration inside the acceptable long-term band, mould temperature steady."
+S10,20,RC-07,205.0,17.8,5.6,12.8,0.54,58.0,0.29,C,>=HIGH,Vibration rising again on press RC-07 mould shoulder bearing; repeat of the earlier pattern.
