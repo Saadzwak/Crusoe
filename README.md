@@ -30,13 +30,31 @@ de 10–15 min).
 
 ```
 .
-├── docs/        Briefs et documentation de projet
-│   └── claude-code-prompt-data-exploration.md   Brief de la tâche d'exploration des données
-└── README.md
+├── docs/                     Briefs + justification physique par tête (physics_heads.md)
+├── pinn/                     Couche physique : le MH-PINN
+│   ├── physics/              Équations gouvernantes (sources + cross-checks anti-erreur)
+│   ├── data/                 Loaders par tête (CWRU, IMS, AI4I, C-MAPSS, pression SYNTHÉTIQUE)
+│   ├── model/                Adaptateurs hétérogènes + corps LSTM partagé + 4 têtes
+│   ├── losses.py             Résidus physics-informed par tête
+│   ├── telemetry.py          Payloads JSON signés HMAC (schéma draft, stdlib pur)
+│   └── train.py              Entraînement v0 : python -m pinn.train [--smoke]
+├── pinn_data_exploration/    NOTES.md + plots par dataset (exploration vérifiée)
+├── data/                     Datasets bruts (NON versionnés — voir .gitignore)
+└── requirements.txt
 ```
 
-Les dossiers de travail (couche d'information, `pinn_data_exploration/`, etc.) seront
-ajoutés au fur et à mesure, chacun sur sa branche dédiée.
+La couche d'information (compression, raisonnement, HMAC, observabilité) est
+développée par un coéquipier et arrivera dans ce même dépôt — ne pas la modifier
+depuis cette branche.
+
+### Lancer la couche physique
+
+```bash
+pip install -r requirements.txt   # torch CPU : voir note dans le fichier
+python -m pinn.train --smoke      # vérification rapide
+python -m pinn.train --epochs 5   # v0
+python pinn_data_exploration/explore_all.py   # régénérer notes + plots
+```
 
 ## Travailler en équipe
 

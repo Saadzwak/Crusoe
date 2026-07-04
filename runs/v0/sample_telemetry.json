@@ -1,0 +1,58 @@
+{
+  "schema_version": "0.1-draft",
+  "machine_id": "curing_press_01",
+  "timestamp": "2026-07-04T16:47:22.175611+00:00",
+  "head_outputs": {
+    "vibration": {
+      "val_accuracy_4class": 0.9281,
+      "sample": {
+        "true_class": "OR",
+        "pred_class": "OR",
+        "band_energies_BPFO_BPFI_BSF": [
+          0.21568,
+          0.01446,
+          0.00261
+        ]
+      },
+      "ims_health_corr_with_lifetime": 0.863
+    },
+    "thermal": {
+      "val_recall_machine_failure@0.5": 0.842,
+      "val_mean_pred_on_healthy": 0.1283,
+      "sample_HDF_row": {
+        "true": [
+          1.0,
+          1.0,
+          0.0
+        ],
+        "pred_MF_HDF_PWF": [
+          0.924,
+          0.992,
+          0.088
+        ]
+      }
+    },
+    "rul": {
+      "test_RMSE_cycles_(capped_target)": 17.37,
+      "pred_range": [
+        25.5,
+        121.3
+      ],
+      "physically_plausible_range_0_125": true,
+      "mean_dRUL_per_cycle_below_cap_(should_be_-1)": -0.396,
+      "frac_increasing_steps_below_cap": 0.386
+    },
+    "pressure": {
+      "provenance": "SYNTHETIC \u2014 generated curing cycles, never measured data",
+      "val_anomaly_accuracy@0.5": 0.738,
+      "recon_RMSE_bar_on_nominal": 4.384,
+      "recon_peak_bar": 15.7,
+      "peak_inside_documented_16_19_bar": true
+    }
+  },
+  "provenance": {
+    "vibration": "REAL (CWRU / IMS public measurements)",
+    "pressure": "SYNTHETIC (generated in-repo, no public dataset exists)"
+  },
+  "hmac_signature": "f516770ba3bc0ed5354ebf0b4a04f301392d90cf94074617f1fa1b6fae0e0cf8"
+}
