@@ -1,0 +1,66 @@
+[
+  {
+    "epoch": 1,
+    "pressure_data": 3.9632829427719116,
+    "pressure_phys": 0.14921771883964538,
+    "pressure_total": 4.112500643730163,
+    "pressure_anom_acc": 0.75,
+    "alpha_end_mae": 0.023367399349808693
+  },
+  {
+    "epoch": 2,
+    "pressure_data": 3.7571032762527468,
+    "pressure_phys": 0.1431979015469551,
+    "pressure_total": 3.900301194190979,
+    "pressure_anom_acc": 0.8062499761581421,
+    "alpha_end_mae": 0.024241354316473007
+  },
+  {
+    "epoch": 3,
+    "pressure_data": 3.601253843307495,
+    "pressure_phys": 0.1479705661535263,
+    "pressure_total": 3.749224400520325,
+    "pressure_anom_acc": 0.8500000238418579,
+    "alpha_end_mae": 0.023091770708560944
+  },
+  {
+    "epoch": 4,
+    "pressure_data": 3.456594157218933,
+    "pressure_phys": 0.1522975131869316,
+    "pressure_total": 3.6088916301727294,
+    "pressure_anom_acc": 0.8500000238418579,
+    "alpha_end_mae": 0.017465051263570786
+  },
+  {
+    "epoch": 5,
+    "pressure_data": 3.338243293762207,
+    "pressure_phys": 0.1597943052649498,
+    "pressure_total": 3.4980376243591307,
+    "pressure_anom_acc": 0.875,
+    "alpha_end_mae": 0.017334315925836563
+  },
+  {
+    "epoch": 6,
+    "pressure_data": 3.2277470588684083,
+    "pressure_phys": 0.1720726042985916,
+    "pressure_total": 3.3998196363449096,
+    "pressure_anom_acc": 0.862500011920929,
+    "alpha_end_mae": 0.013555986806750298
+  },
+  {
+    "epoch": 7,
+    "pressure_data": 3.1556061506271362,
+    "pressure_phys": 0.18480159044265748,
+    "pressure_total": 3.3404077291488647,
+    "pressure_anom_acc": 0.8687499761581421,
+    "alpha_end_mae": 0.013753187842667103
+  },
+  {
+    "epoch": 8,
+    "pressure_data": 3.076632189750671,
+    "pressure_phys": 0.19807022660970688,
+    "pressure_total": 3.2747024297714233,
+    "pressure_anom_acc": 0.875,
+    "alpha_end_mae": 0.010316148400306702
+  }
+]

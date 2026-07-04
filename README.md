@@ -1,55 +1,60 @@
-# Crusoe — Factory Digital-Twin
+# Crusoe — Factory Digital Twin (RAISE Summit 2026, track Crusoe)
 
-Projet d'équipe pour le **RAISE Summit 2026 hackathon, track Crusoe** : un système de jumeau
-numérique d'usine, construit par une équipe de 5.
+Jumeau numérique d'usine inspiré du cas **Michelin Roanne** (pneus UHP, ligne de
+cuisson C3M — le goulot d'étranglement) : une couche **physique** comprend l'état
+réel de chaque machine, une couche **information** transforme cette physique en
+avis qu'un humain peut questionner et outrepasser, et une **UI opérateur** montre
+l'agent en train d'agir.
 
-Le système s'articule autour de deux couches développées en parallèle :
+> **Aucune donnée confidentielle Michelin** n'est utilisée nulle part. Jeux de
+> données publics vérifiés, utilisés comme substituts physiquement plausibles et
+> **toujours étiquetés** (réel / simulé / synthétique — jusque dans la signature
+> des messages).
 
-1. **Information layer** — compression, raisonnement, débat, sécurité (HMAC) et
-   observabilité/audit de la télémétrie. Tourne aujourd'hui sur des données synthétiques
-   de substitution en attendant le modèle physique.
-2. **Physical layer (MH-PINN)** — un ensemble de **Multi-Head Physics-Informed Neural
-   Networks**, un par machine surveillée. Chaque PINN partage un « corps » récurrent
-   (type PI-LSTM) et plusieurs « têtes » de sortie, une par phénomène physique surveillé
-   (vibration, thermique/puissance, dégradation / durée de vie restante). Objectif :
-   estimer l'état physique réel d'une machine à partir de capteurs, puis alimenter la
-   couche d'information en télémétrie structurée et signée (HMAC).
+## Les trois blocs
 
-## Cadre narratif / démo
+| Bloc | Rôle | Code | Docs |
+|---|---|---|---|
+| **MH-PINN** (couche physique) | Corps LSTM partagé + têtes par phénomène (vibration, thermique, RUL, pression/cuisson, fatigue) ; démo phare : reconstruction de capteur retenu | [pinn/](pinn/) | [docs/MODEL_CARD.md](docs/MODEL_CARD.md) · [docs/physics_heads.md](docs/physics_heads.md) |
+| **PRAETOR** (couche information) | Vérif HMAC → triage 3 étages → advisory citée → débat Advocate/Skeptic → Jury → opérateur outillé ; app intervention (notifié→vérifié VLM) | [backend/agent/](backend/agent/) | [docs/LLM_LAYER_README.md](docs/LLM_LAYER_README.md) · [CLAUDE.md](CLAUDE.md) |
+| **CureWatch** (UI) | Interface opérateur (Claude Design) servie par le backend | [backend/agent/static/](backend/agent/static/) | [docs/OPERATOR_APP.md](docs/OPERATOR_APP.md) |
 
-Le système s'inspire du procédé de fabrication de pneus de Michelin. La machine ciblée
-pour la physique est la **presse de cuisson (vulcanisation)** — le goulot d'étranglement
-reconnu en fabrication de pneus (températures jusqu'à 180 °C, pressions > 20 bar, cycles
-de 10–15 min).
+**Interface entre couches (contrat figé)** : `SignedReading{payload: PinnReading,
+signature}` — HMAC-SHA256 sur sérialisation canonique, stdlib pur. Testé **en
+conditions réelles** (les deux codes du même arbre) :
+[scripts/test_cross_layer_contract.py](scripts/test_cross_layer_contract.py).
 
-> **Aucune donnée confidentielle Michelin** n'est utilisée nulle part. Nous utilisons
-> délibérément des jeux de données publics, vérifiés et physiquement plausibles comme
-> substituts, et nous le signalons explicitement à chaque présentation.
+## Démarrage rapide
 
-## Structure du dépôt
+```bash
+# 1) Secrets — le repo est destiné à être public : AUCUNE clé committée, jamais
+cp .env.example .env          # remplir CRUSOE_API_KEY (vide = mode mock complet)
 
+# 2) Couche information + UI
+pip install -r backend/requirements.txt
+uvicorn backend.agent.main:app --port 8000     # UI sur http://localhost:8000
+
+# 3) Couche physique (torch CPU : voir note dans requirements.txt racine)
+pip install -r requirements.txt
+python -m pinn.train --smoke                   # vérification rapide
 ```
-.
-├── docs/        Briefs et documentation de projet
-│   └── claude-code-prompt-data-exploration.md   Brief de la tâche d'exploration des données
-└── README.md
-```
 
-Les dossiers de travail (couche d'information, `pinn_data_exploration/`, etc.) seront
-ajoutés au fur et à mesure, chacun sur sa branche dédiée.
+**Poids démo commités exprès** : [pinn/models/mh_pinn_v2.pt](pinn/models/)
+(~0,6 Mo — un clone frais fait tourner la démo sans réentraînement ; décision
+d'équipe, exception ciblée du .gitignore).
+
+## Données
+
+- **Datasets bruts NON versionnés** (`/data/`, multi-Go, retéléchargeables —
+  procédure dans [pinn_data_exploration/](pinn_data_exploration/)).
+- **Stand-ins démo commités** dans [pinn/data/](pinn/data/) (C-MAPSS FD001 +
+  AI4I, petits fichiers publics rejoués par `telemetry_source.py`) — le même
+  dossier contient le **package Python des loaders** (`*.py`).
+- Seuils machine sourcés : [backend/agent/limits.py](backend/agent/limits.py) ·
+  [docs/anomaly_thresholds.json](docs/anomaly_thresholds.json).
 
 ## Travailler en équipe
 
-- Travaillez sur une **branche dédiée** par chantier ; ne poussez pas directement sur
-  `main`. Ouvrez une Pull Request pour fusionner.
-- Ne touchez pas au code d'un·e coéquipier·ère sans concertation (les deux couches
-  évoluent en parallèle).
-- Les **jeux de données brutes ne sont pas versionnés** (voir `.gitignore`) : ils sont
-  volumineux et se retéléchargent. Documentez les sources plutôt que de committer les
-  fichiers.
-
-## Prochaine étape
-
-La première tâche planifiée est l'**exploration et la vérification des jeux de données**
-avant de concevoir l'architecture PINN. Le brief détaillé se trouve dans
-[`docs/claude-code-prompt-data-exploration.md`](docs/claude-code-prompt-data-exploration.md).
+Branche dédiée par chantier, PR vers `main`, pas de push direct. Historique
+complet des investigations physiques : `docs/v1_physics_diagnosis.md`,
+`docs/v2_equation_stress_test.md`.

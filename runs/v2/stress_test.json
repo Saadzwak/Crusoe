@@ -1,0 +1,340 @@
+{
+  "A1_cmapss_knee": {
+    "median_RUL_at_knee": 92.0,
+    "IQR": [
+      79.0,
+      108.0
+    ],
+    "min_max": [
+      63.0,
+      179.0
+    ],
+    "convention_cap": 125.0,
+    "frac_units_knee_above_125": 0.12,
+    "frac_units_knee_below_75": 0.15,
+    "reading": "wide dispersion => the fixed 125 cap mislabels a large share of windows (flat-sensor windows labeled as degrading, or vice versa); per-unit knee targets are the data-supported alternative"
+  },
+  "A3_pseudolabels": {
+    "current_h12": 0.7356,
+    "harm123": 0.7366,
+    "local_snr": 0.7114,
+    "ir_sidebands": 0.7291,
+    "n_faulty_windows": 3067
+  },
+  "A4_kamal": {
+    "grid": [
+      {
+        "m": 0.5,
+        "n": 1.0,
+        "k2/k1": 1.0,
+        "t99_180C_min": 28.1,
+        "alpha_end_leak_scenario": 0.9777
+      },
+      {
+        "m": 0.5,
+        "n": 1.0,
+        "k2/k1": 2.0,
+        "t99_180C_min": 28.1,
+        "alpha_end_leak_scenario": 0.977
+      },
+      {
+        "m": 0.5,
+        "n": 1.0,
+        "k2/k1": 4.0,
+        "t99_180C_min": 28.1,
+        "alpha_end_leak_scenario": 0.9763
+      },
+      {
+        "m": 0.5,
+        "n": 1.5,
+        "k2/k1": 1.0,
+        "t99_180C_min": 28.1,
+        "alpha_end_leak_scenario": 0.9862
+      },
+      {
+        "m": 0.5,
+        "n": 1.5,
+        "k2/k1": 2.0,
+        "t99_180C_min": 28.1,
+        "alpha_end_leak_scenario": 0.9861
+      },
+      {
+        "m": 0.5,
+        "n": 1.5,
+        "k2/k1": 4.0,
+        "t99_180C_min": 28.1,
+        "alpha_end_leak_scenario": 0.986
+      },
+      {
+        "m": 0.5,
+        "n": 2.0,
+        "k2/k1": 1.0,
+        "t99_180C_min": 28.1,
+        "alpha_end_leak_scenario": 0.9881
+      },
+      {
+        "m": 0.5,
+        "n": 2.0,
+        "k2/k1": 2.0,
+        "t99_180C_min": 28.1,
+        "alpha_end_leak_scenario": 0.9881
+      },
+      {
+        "m": 0.5,
+        "n": 2.0,
+        "k2/k1": 4.0,
+        "t99_180C_min": 28.1,
+        "alpha_end_leak_scenario": 0.9881
+      },
+      {
+        "m": 1.0,
+        "n": 1.0,
+        "k2/k1": 1.0,
+        "t99_180C_min": 28.1,
+        "alpha_end_leak_scenario": 0.9766
+      },
+      {
+        "m": 1.0,
+        "n": 1.0,
+        "k2/k1": 2.0,
+        "t99_180C_min": 28.1,
+        "alpha_end_leak_scenario": 0.9751
+      },
+      {
+        "m": 1.0,
+        "n": 1.0,
+        "k2/k1": 4.0,
+        "t99_180C_min": 28.1,
+        "alpha_end_leak_scenario": 0.9731
+      },
+      {
+        "m": 1.0,
+        "n": 1.5,
+        "k2/k1": 1.0,
+        "t99_180C_min": 28.1,
+        "alpha_end_leak_scenario": 0.9861
+      },
+      {
+        "m": 1.0,
+        "n": 1.5,
+        "k2/k1": 2.0,
+        "t99_180C_min": 28.1,
+        "alpha_end_leak_scenario": 0.9859
+      },
+      {
+        "m": 1.0,
+        "n": 1.5,
+        "k2/k1": 4.0,
+        "t99_180C_min": 28.1,
+        "alpha_end_leak_scenario": 0.9857
+      },
+      {
+        "m": 1.0,
+        "n": 2.0,
+        "k2/k1": 1.0,
+        "t99_180C_min": 28.1,
+        "alpha_end_leak_scenario": 0.9881
+      },
+      {
+        "m": 1.0,
+        "n": 2.0,
+        "k2/k1": 2.0,
+        "t99_180C_min": 28.1,
+        "alpha_end_leak_scenario": 0.988
+      },
+      {
+        "m": 1.0,
+        "n": 2.0,
+        "k2/k1": 4.0,
+        "t99_180C_min": 28.1,
+        "alpha_end_leak_scenario": 0.988
+      },
+      {
+        "m": 2.0,
+        "n": 1.0,
+        "k2/k1": 1.0,
+        "t99_180C_min": 28.1,
+        "alpha_end_leak_scenario": 0.9751
+      },
+      {
+        "m": 2.0,
+        "n": 1.0,
+        "k2/k1": 2.0,
+        "t99_180C_min": 28.1,
+        "alpha_end_leak_scenario": 0.9721
+      },
+      {
+        "m": 2.0,
+        "n": 1.0,
+        "k2/k1": 4.0,
+        "t99_180C_min": 28.1,
+        "alpha_end_leak_scenario": 0.967
+      },
+      {
+        "m": 2.0,
+        "n": 1.5,
+        "k2/k1": 1.0,
+        "t99_180C_min": 28.1,
+        "alpha_end_leak_scenario": 0.9859
+      },
+      {
+        "m": 2.0,
+        "n": 1.5,
+        "k2/k1": 2.0,
+        "t99_180C_min": 28.1,
+        "alpha_end_leak_scenario": 0.9856
+      },
+      {
+        "m": 2.0,
+        "n": 1.5,
+        "k2/k1": 4.0,
+        "t99_180C_min": 28.1,
+        "alpha_end_leak_scenario": 0.9851
+      },
+      {
+        "m": 2.0,
+        "n": 2.0,
+        "k2/k1": 1.0,
+        "t99_180C_min": 28.1,
+        "alpha_end_leak_scenario": 0.988
+      },
+      {
+        "m": 2.0,
+        "n": 2.0,
+        "k2/k1": 2.0,
+        "t99_180C_min": 28.1,
+        "alpha_end_leak_scenario": 0.988
+      },
+      {
+        "m": 2.0,
+        "n": 2.0,
+        "k2/k1": 4.0,
+        "t99_180C_min": 28.1,
+        "alpha_end_leak_scenario": 0.9879
+      }
+    ],
+    "alpha_end_range_across_grid": [
+      0.967,
+      0.9881
+    ],
+    "t99_180C_range_min": [
+      28.1,
+      28.1
+    ]
+  },
+  "A4_hertz": {
+    "grid": [
+      {
+        "roller_len_in": 0.25,
+        "load_share": 0.33,
+        "sigma_H_GPa": 1.43,
+        "sigma_f_prime_GPa_at_b-0.0713": 6.2
+      },
+      {
+        "roller_len_in": 0.25,
+        "load_share": 0.5,
+        "sigma_H_GPa": 1.76,
+        "sigma_f_prime_GPa_at_b-0.0713": 7.7
+      },
+      {
+        "roller_len_in": 0.25,
+        "load_share": 1.0,
+        "sigma_H_GPa": 2.49,
+        "sigma_f_prime_GPa_at_b-0.0713": 10.9
+      },
+      {
+        "roller_len_in": 0.35,
+        "load_share": 0.33,
+        "sigma_H_GPa": 1.21,
+        "sigma_f_prime_GPa_at_b-0.0713": 5.3
+      },
+      {
+        "roller_len_in": 0.35,
+        "load_share": 0.5,
+        "sigma_H_GPa": 1.49,
+        "sigma_f_prime_GPa_at_b-0.0713": 6.5
+      },
+      {
+        "roller_len_in": 0.35,
+        "load_share": 1.0,
+        "sigma_H_GPa": 2.1,
+        "sigma_f_prime_GPa_at_b-0.0713": 9.2
+      },
+      {
+        "roller_len_in": 0.45,
+        "load_share": 0.33,
+        "sigma_H_GPa": 1.07,
+        "sigma_f_prime_GPa_at_b-0.0713": 4.7
+      },
+      {
+        "roller_len_in": 0.45,
+        "load_share": 0.5,
+        "sigma_H_GPa": 1.31,
+        "sigma_f_prime_GPa_at_b-0.0713": 5.7
+      },
+      {
+        "roller_len_in": 0.45,
+        "load_share": 1.0,
+        "sigma_H_GPa": 1.86,
+        "sigma_f_prime_GPa_at_b-0.0713": 8.1
+      }
+    ],
+    "reading": "sigma_H scales ~sqrt(share/L); the sigma_f' calibration absorbs the scale exactly (same N_f anchor), so damage D and hours-to-replacement are INSENSITIVE to these two (c) choices \u2014 only absolute stress values shift"
+  },
+  "A4_ea": {
+    "grid": [
+      {
+        "Ea_over_R_K": 10000.0,
+        "t99_180C_min": 24.4,
+        "t99_210C_min": 6.2,
+        "ratio_180_over_210": 3.96
+      },
+      {
+        "Ea_over_R_K": 12000.0,
+        "t99_180C_min": 28.1,
+        "t99_210C_min": 5.4,
+        "ratio_180_over_210": 5.2
+      },
+      {
+        "Ea_over_R_K": 14000.0,
+        "t99_180C_min": 32.4,
+        "t99_210C_min": 4.7,
+        "ratio_180_over_210": 6.87
+      }
+    ],
+    "reading": "A is re-anchored at t99(195C)=12min for every Ea/R, so only the temperature SENSITIVITY changes; the patent's range spans the ratio shown \u2014 flag when citing exact cold-end cycle times"
+  },
+  "A2_gradient_conflict": {
+    "mean_pairwise_cosine_shared_body": {
+      "vibration|fe_recon": 0.0597,
+      "vibration|fatigue": 0.0153,
+      "vibration|thermal": -0.0004,
+      "vibration|thermal_recon": 0.0012,
+      "vibration|rul": 0.0074,
+      "vibration|pressure": 0.0009,
+      "fe_recon|fatigue": 0.03,
+      "fe_recon|thermal": -0.0011,
+      "fe_recon|thermal_recon": 0.001,
+      "fe_recon|rul": 0.0399,
+      "fe_recon|pressure": 0.0013,
+      "fatigue|thermal": 0.0002,
+      "fatigue|thermal_recon": -0.0065,
+      "fatigue|rul": 0.0101,
+      "fatigue|pressure": 0.0002,
+      "thermal|thermal_recon": 0.0081,
+      "thermal|rul": 0.0163,
+      "thermal|pressure": -0.0012,
+      "thermal_recon|rul": -0.0003,
+      "thermal_recon|pressure": 0.0022,
+      "rul|pressure": -0.0061
+    },
+    "rul_conflicts_sorted": {
+      "rul|pressure": -0.0061,
+      "thermal_recon|rul": -0.0003,
+      "vibration|rul": 0.0074,
+      "fatigue|rul": 0.0101,
+      "thermal|rul": 0.0163,
+      "fe_recon|rul": 0.0399
+    }
+  }
+}

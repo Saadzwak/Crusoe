@@ -1,0 +1,20 @@
+{
+  "pressure": {
+    "provenance": "SYNTHETIC \u2014 generated curing cycles, never measured data",
+    "val_anomaly_accuracy@0.5": 0.875,
+    "alpha_end_MAE": 0.0103,
+    "alpha_corr_on_leaky_cycles": 0.891,
+    "under_cure_detection_(alpha<0.90)": {
+      "n_true_under_cured": 6,
+      "n_caught_raw": 3,
+      "n_caught_calibrated": 3,
+      "n_false_alarms_calibrated": 1
+    },
+    "alpha_calibration_(pred_to_true,_fit_on_train)": [
+      1.1468,
+      -0.133
+    ],
+    "recon_peak_bar": 17.02
+  },
+  "virtual_sensor_demo": {}
+}

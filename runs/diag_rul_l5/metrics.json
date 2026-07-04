@@ -1,0 +1,12 @@
+{
+  "rul": {
+    "test_RMSE_cycles_(capped_target)": 15.1,
+    "pred_range": [
+      11.5,
+      123.8
+    ],
+    "mean_dRUL_per_cycle_below_cap_(should_be_-1)": -0.959,
+    "frac_increasing_steps_below_cap": 0.289
+  },
+  "virtual_sensor_demo": {}
+}

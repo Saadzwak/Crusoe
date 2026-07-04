@@ -1,28 +1,35 @@
-# ---- Python ----
+# Environment — repo is PUBLIC, never commit keys
+.env
+.env.local
+.env.*.local
+*.pem
+
+# Python
 __pycache__/
 *.py[cod]
-*$py.class
-*.so
-.Python
-build/
-dist/
 *.egg-info/
 .eggs/
-
-# ---- Environnements virtuels ----
+build/
 .venv/
 venv/
-env/
-ENV/
-.python-version
-
-# ---- Notebooks ----
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
 .ipynb_checkpoints/
 
-# ---- Données brutes & artefacts ML (ne pas versionner : volumineux, retéléchargeables) ----
-data/
-datasets/
-raw/
+# Node / Next.js
+node_modules/
+.next/
+out/
+dist/
+*.tsbuildinfo
+npm-debug.log*
+
+# RAW datasets at repo root — ANCHORED. (The old unanchored `data/` silently
+# ignored the pinn/data python package for five commits; /data/ fixes that.)
+/data/
+/datasets/
+/raw/
 *.zip
 *.tar
 *.tar.gz
@@ -33,6 +40,8 @@ raw/
 *.mat
 *.npy
 *.npz
+
+# Model / artifact binaries (targeted demo exceptions below)
 *.pt
 *.pth
 *.ckpt
@@ -42,17 +51,41 @@ raw/
 mlruns/
 wandb/
 
-# ---- Secrets / config locale ----
-.env
-.env.*
-!.env.example
-*.key
-secrets.*
+# pinn/data: the PYTHON PACKAGE (loaders) is tracked; bulk data is not.
+pinn/data/**
+!pinn/data/*.py
+!pinn/data/.gitkeep
+!pinn/data/README.md
+# Demo stand-in datasets ARE committed (public benchmarks, fresh clone must run)
+!pinn/data/train_FD001.txt
+!pinn/data/test_FD001.txt
+!pinn/data/RUL_FD001.txt
+!pinn/data/ai4i2020.csv
+!pinn/data/synthetic_rc07_scenarios.csv
 
-# ---- Éditeurs / OS ----
-.vscode/
-.idea/
-*.swp
+# Trained demo weights: committed ON PURPOSE (team decision — ~0.6 MB, a fresh
+# clone must run the demo without retraining)
+!pinn/models/mh_pinn_v2.pt
+
+# Runtime state
+*.db
+*.db-journal
+
+# Local case material / scratch (not for the public repo)
+files (1)/
+files (1).zip
+WhatsApp*
+*.jpeg
+rapport socio-economique.docx
+Michelin_Roanne_Site_Selection_Dossier.pdf
+
+# OS / editor
 .DS_Store
 Thumbs.db
 desktop.ini
+.idea/
+.vscode/
+*.swp
+
+# Local Claude Code settings
+.claude/

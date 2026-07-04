@@ -1,0 +1,40 @@
+{
+  "_meta": {
+    "description": "Verified anomaly thresholds for the curing press digital twin — machine-readable companion to docs/physics_heads.md section 7",
+    "consumer": "information layer (backend/agent) triage Tier 1",
+    "confidence_tags": {
+      "a": "established physical law",
+      "b": "specific cited source",
+      "c": "plausible, unconfirmed — never present as settled fact"
+    },
+    "no_confidential_data": "all values from public literature/standards; synthetic-head thresholds labeled as such"
+  },
+  "temperature_C": {
+    "normal_range": [180, 210],
+    "confidence": "b",
+    "source": "tire curing literature (verified by team)"
+  },
+  "pressure": {
+    "clamping_bar_min": 20,
+    "direct_steam_MPa_range": [1.6, 1.9],
+    "confidence": "b",
+    "source": "tire curing literature — TWO distinct figures from different sources; cite both, never average them"
+  },
+  "cycle_duration_min": {
+    "normal_range": [10, 15],
+    "large_tire_max": 30,
+    "confidence": "b",
+    "source": "tire curing literature (verified by team)"
+  },
+  "vibration_rms_mm_s": {
+    "zones": { "A_good_max": 1.12, "B_acceptable_max": 2.8, "C_unsatisfactory_max": 7.1, "D_unacceptable_above": 7.1 },
+    "confidence": "b",
+    "source": "ISO 10816-3 / 20816-3, Group 2 machines (15-300 kW)",
+    "caveat": "GENERAL industrial standard, NOT curing-press-specific — state this wherever cited"
+  },
+  "degree_of_cure_alpha_end": {
+    "under_cured_below": 0.90,
+    "confidence": "c",
+    "source": "demo threshold on SYNTHETIC Kamal-Sourour cycles (pinn/physics/cure_kinetics.py) — no real compound characterized"
+  }
+}
