@@ -3,22 +3,22 @@
     "machine_id": "RC-07",
     "department": "Curing",
     "epoch": 0,
-    "timestamp": 1783190029.2621315,
+    "timestamp": 1783189558.2451434,
     "signals": {
       "mould_temp_C": 195.0,
       "coil_power_kW": 71.0,
       "vibration_rms_mm_s": 2.1,
-      "pressure_bar": 15.36
+      "pressure_bar": 17.0
     },
     "pinn": {
-      "health_index": 0.10299999999999998,
-      "rul_cycles": 14.3,
+      "health_index": 0.9,
+      "rul_cycles": 13.7,
       "residual": 0.0,
       "failure_mode_probs": {
-        "bearing_fault": 0.01749999999999996
+        "bearing_fault": 0.09999999999999998
       }
     },
     "note": "v1 sample \u2014 near-failure snapshot (last IMS window, damage from fatigue head); schema per backend/agent/schemas.py"
   },
-  "signature": "42bdf02832f41a18589f7fd6c2c1bfab4e6580a94aa8b8b2efce2ca46084c1ad"
+  "signature": "a78a48bc81aad85fc83c99cdbd07b7cdcd75ff10c3ca0701a50be5a5a5c62590"
 }

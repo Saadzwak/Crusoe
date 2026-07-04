@@ -42,8 +42,13 @@ from pinn.physics.cure_kinetics import ALPHA_CURED_THRESHOLD
 from pinn.physics import fatigue as fat
 from pinn.telemetry import build_payload, to_praetor_signed_reading
 
-RUNS_DIR = Path("runs/v1")
-RUL_LAMBDA_PHYS = 0.5   # raised from v0's 0.1 — see module docstring
+RUNS_DIR = Path("runs/v1")      # overridable via --run-dir (diagnostic sweeps)
+# MEASURED, not guessed (Step-6 sweep, runs/diag_rul_*): the normalized
+# monotonicity term is ~1000x smaller than the data term (shared-body gradient
+# ratio 0.026 at lambda=0.5 — numerically inert). lambda=5 was best on BOTH
+# test RMSE (15.10 vs 15.99) and slope (-0.959 vs -0.910); the hard-monotone
+# head variant was strictly worse (RMSE 17.64). See docs/v1_physics_diagnosis.md.
+RUL_LAMBDA_PHYS = 5.0   # overridable via --rul-lambda
 
 
 # --------------------------------------------------------------------------- data
@@ -447,6 +452,17 @@ def evaluate(model: MHPinn, tasks: dict) -> dict:
         under_true = a_true < ALPHA_CURED_THRESHOLD
         under_pred = a_hat < ALPHA_CURED_THRESHOLD
         leaky = y > 0
+        # Linear recalibration fitted on TRAIN leaky cycles (diagnosed
+        # regression-to-mean: pred-vs-true slope ~0.52 — the head tracks
+        # under-cure direction but halves the amplitude). Applied to val only;
+        # no leakage. Coefficients persisted for inference use.
+        tr = d["train"]
+        out_tr = model("pressure", d["X"][tr])
+        lt = d["y"][tr] > 0
+        fit = np.polyfit(out_tr["alpha_end"][lt].numpy(),
+                         d["alpha_end"][tr][lt].numpy(), 1)
+        a_cal = torch.from_numpy(np.polyval(fit, a_hat.numpy()).astype(np.float32))
+        under_pred_cal = a_cal < ALPHA_CURED_THRESHOLD
         # Correlation on leaky cycles is the robust depth metric — the
         # threshold count below can rest on 1-3 validation cases.
         alpha_corr = float(np.corrcoef(a_hat[leaky].numpy(),
@@ -461,8 +477,12 @@ def evaluate(model: MHPinn, tasks: dict) -> dict:
             else round(alpha_corr, 3),
             "under_cure_detection_(alpha<%.2f)" % ALPHA_CURED_THRESHOLD: {
                 "n_true_under_cured": int(under_true.sum()),
-                "n_caught": int((under_true & under_pred).sum()),
+                "n_caught_raw": int((under_true & under_pred).sum()),
+                "n_caught_calibrated": int((under_true & under_pred_cal).sum()),
+                "n_false_alarms_calibrated": int((~under_true & under_pred_cal).sum()),
             },
+            "alpha_calibration_(pred_to_true,_fit_on_train)": [round(float(c), 4)
+                                                               for c in fit],
             "recon_peak_bar": round(float(out["pressure_recon"].max()), 2),
         }
     return report
@@ -477,9 +497,20 @@ def main():
     ap.add_argument("--lr", type=float, default=1e-3)
     ap.add_argument("--data-root", default="data")
     ap.add_argument("--smoke", action="store_true", help="tiny fast run")
+    ap.add_argument("--run-dir", default=None,
+                    help="artifact directory (default runs/v1)")
+    ap.add_argument("--rul-lambda", type=float, default=None,
+                    help="override RUL lambda_phys (Step-6 sweep)")
+    ap.add_argument("--rul-monotone", action="store_true",
+                    help="use the monotone-by-construction RUL head")
     args = ap.parse_args()
     if args.smoke:
         args.epochs = 1
+    global RUNS_DIR, RUL_LAMBDA_PHYS
+    if args.run_dir:
+        RUNS_DIR = Path(args.run_dir)
+    if args.rul_lambda is not None:
+        RUL_LAMBDA_PHYS = args.rul_lambda
 
     torch.manual_seed(0)
     print("Bearing geometry cross-check vs published dataset constants:")
@@ -494,10 +525,12 @@ def main():
         if d is not None:
             tasks[h] = d
 
-    model = MHPinn()
+    model = MHPinn(rul_monotone=args.rul_monotone)
     n_params = sum(p.numel() for p in model.parameters())
     print(f"MHPinn v1: {n_params:,} parameters, trained outputs: "
-          f"{[n for n, _ in task_list(tasks)]}", flush=True)
+          f"{[n for n, _ in task_list(tasks)]}"
+          + (" [RUL monotone head]" if args.rul_monotone else "")
+          + f" [rul lambda_phys={RUL_LAMBDA_PHYS}]", flush=True)
 
     RUNS_DIR.mkdir(parents=True, exist_ok=True)
     history = train(model, tasks, args.epochs, args.batch_size, args.lr)

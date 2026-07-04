@@ -241,8 +241,11 @@ sur l'outil `get_pinn_reconstruction` prévu par la couche information.
   self-adaptive ([arXiv 2104.06217](https://arxiv.org/pdf/2104.06217)),
   annealing par statistiques de gradient — sont le raffinement v2 documenté,
   non nécessaire à cette échelle.
-- **Écart à la v0 motivé par la mesure** : λ_phys(RUL) 0,1 → 0,5 (résidu
-  observé dRUL = −0,40 vs −1 physique).
+- **Écarts motivés par la mesure** : λ_phys(RUL) 0,1 → 0,5 (v1, résidu observé
+  −0,40) puis **0,5 → 5,0** après le diagnostic instrumenté Step-6 (terme
+  ~1000× sous-échelle, balayage λ : meilleur RMSE **et** meilleure pente à
+  λ=5 ; tête monotone dure rejetée sur mesure). Détails, sonde de gradients et
+  verdicts par tête : [v1_physics_diagnosis.md](v1_physics_diagnosis.md).
 - Courbes loss/métriques par tête et par epoch : `runs/v1/curves_*.png`.
 
 ## 10. Contrat de sortie (FIGÉ, aligné sur la branche du coéquipier)

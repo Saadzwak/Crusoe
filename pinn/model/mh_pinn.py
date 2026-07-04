@@ -97,6 +97,31 @@ class RulHead(nn.Module):
         return {"rul_seq": nn.functional.softplus(self.out(h_seq)).squeeze(-1)}
 
 
+class RulHeadMonotone(nn.Module):
+    """RUL non-increasing BY CONSTRUCTION (Step-6 diagnostic variant).
+
+    Parameterization: RUL_t = RUL_end + sum_{s>t} delta_s with delta_s =
+    softplus(.) >= 0. Irreversible damage becomes an architectural guarantee
+    instead of a soft penalty; the physics loss then only has to push
+    delta -> 1 cycle/cycle below the cap. Built to answer: is the -0.61 slope
+    a lambda-weighting problem or a representational one?
+    """
+
+    def __init__(self, hidden: int):
+        super().__init__()
+        self.end = nn.Linear(hidden, 1)
+        self.delta = nn.Linear(hidden, 1)
+        nn.init.constant_(self.end.bias, 60.0)   # same mid-range rationale
+        # softplus(0.541) ~= 1.0: start at the physical -1 cycle/cycle slope.
+        nn.init.constant_(self.delta.bias, 0.541)
+
+    def forward(self, h_seq: torch.Tensor) -> dict:
+        rul_end = nn.functional.softplus(self.end(h_seq[:, -1])).squeeze(-1)  # [B]
+        deltas = nn.functional.softplus(self.delta(h_seq)).squeeze(-1)        # [B,T]
+        tail = deltas.flip(1).cumsum(dim=1).flip(1) - deltas                  # sum_{s>t}
+        return {"rul_seq": rul_end.unsqueeze(1) + tail}
+
+
 class PressureHead(nn.Module):
     """Nominal-pressure reconstruction + anomaly logit + final degree of cure.
 
@@ -192,7 +217,8 @@ class FeReconHead(nn.Module):
 
 class MHPinn(nn.Module):
     def __init__(self, d_model: int = 64, hidden: int = 96, num_layers: int = 1,
-                 vib_window: int = 2048, pressure_seq: int = 256):
+                 vib_window: int = 2048, pressure_seq: int = 256,
+                 rul_monotone: bool = False):
         super().__init__()
         self.adapters = nn.ModuleDict({
             "vibration": FrameAdapter(frame=64, in_channels=1, d_model=d_model),
@@ -204,7 +230,7 @@ class MHPinn(nn.Module):
         self.heads = nn.ModuleDict({
             "vibration": VibrationHead(hidden),
             "thermal": ThermalHead(hidden),
-            "rul": RulHead(hidden),
+            "rul": RulHeadMonotone(hidden) if rul_monotone else RulHead(hidden),
             "pressure": PressureHead(hidden),
             "fatigue": FatigueHead(hidden),
             "thermal_recon": ThermalReconHead(hidden),

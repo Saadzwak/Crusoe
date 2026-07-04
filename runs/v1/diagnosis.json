@@ -1,0 +1,104 @@
+{
+  "A_loss_fractions_final_epoch": {
+    "vibration": {
+      "data_loss": 0.0421,
+      "phys_loss_raw": 1.27035,
+      "lambda": 0.1,
+      "phys_fraction_of_total": 0.7511
+    },
+    "fe_recon": {
+      "data_loss": 0.00208,
+      "phys_loss_raw": 0.117,
+      "lambda": 0.2,
+      "phys_fraction_of_total": 0.9183
+    },
+    "fatigue": {
+      "data_loss": 0.0028,
+      "phys_loss_raw": 0.00173,
+      "lambda": 0.3,
+      "phys_fraction_of_total": 0.156
+    },
+    "thermal": {
+      "data_loss": 0.22932,
+      "phys_loss_raw": 0.02551,
+      "lambda": 0.5,
+      "phys_fraction_of_total": 0.0527
+    },
+    "thermal_recon": {
+      "data_loss": 0.11908,
+      "phys_loss_raw": 0.03191,
+      "lambda": 0.3,
+      "phys_fraction_of_total": 0.0744
+    },
+    "rul": {
+      "data_loss": 0.01749,
+      "phys_loss_raw": 0.00093,
+      "lambda": 0.5,
+      "phys_fraction_of_total": 0.0258
+    },
+    "pressure": {
+      "data_loss": 17.49995,
+      "phys_loss_raw": 0.07137,
+      "lambda": 0.2,
+      "phys_fraction_of_total": 0.0008
+    }
+  },
+  "A_gradient_probe_shared_body": {
+    "vibration": {
+      "body_grad_norm_data": 0.295418,
+      "body_grad_norm_lambda_phys": 0.043253,
+      "phys_to_data_grad_ratio": 0.1464,
+      "phys_receives_gradient": true
+    },
+    "fe_recon": {
+      "body_grad_norm_data": 0.00716,
+      "body_grad_norm_lambda_phys": 0.023939,
+      "phys_to_data_grad_ratio": 3.3432,
+      "phys_receives_gradient": true
+    },
+    "fatigue": {
+      "body_grad_norm_data": 0.034996,
+      "body_grad_norm_lambda_phys": 0.007772,
+      "phys_to_data_grad_ratio": 0.2221,
+      "phys_receives_gradient": true
+    },
+    "thermal": {
+      "body_grad_norm_data": 0.538617,
+      "body_grad_norm_lambda_phys": 0.012145,
+      "phys_to_data_grad_ratio": 0.0225,
+      "phys_receives_gradient": true
+    },
+    "thermal_recon": {
+      "body_grad_norm_data": 0.171997,
+      "body_grad_norm_lambda_phys": 0.006952,
+      "phys_to_data_grad_ratio": 0.0404,
+      "phys_receives_gradient": true
+    },
+    "rul": {
+      "body_grad_norm_data": 0.029742,
+      "body_grad_norm_lambda_phys": 0.000769,
+      "phys_to_data_grad_ratio": 0.0259,
+      "phys_receives_gradient": true
+    },
+    "pressure": {
+      "body_grad_norm_data": 1.508422,
+      "body_grad_norm_lambda_phys": 0.000569,
+      "phys_to_data_grad_ratio": 0.0004,
+      "phys_receives_gradient": true
+    }
+  },
+  "B_vibration_entropy_floor": {
+    "observed_phys_term": 1.2245,
+    "soft_target_entropy_floor": 0.6333,
+    "achievable_KL_distance": 0.5912,
+    "pseudo_label_agreement_with_true_class": 0.8154,
+    "reading": "the term cannot go below the floor; only the KL part is optimizable \u2014 if KL is small the term IS optimized, its plateau is the soft-target entropy, not a dead gradient"
+  },
+  "D_pressure_under_cure": {
+    "n_leaky_val_cycles": 58,
+    "corr_physics_feature_vs_true_alpha": -0.7657,
+    "corr_physics_feature_vs_predicted_alpha": -0.8383,
+    "regression_slope_pred_vs_true_on_leaky": 0.5165,
+    "reading": "|corr(feature, true)| ~ 1 means one computable physics feature carries the answer; slope << 1 means the head compresses toward the nominal cluster (regression-to-mean), i.e. a wiring/calibration gap, not a lambda gap"
+  }
+}
