@@ -29,8 +29,19 @@ pressure >20 bar OR 16–19 bar steam — both source formulations kept, 19–20
 B≤2.8 C≤7.1 D>7.1 — flagged as generic reference, not machine-measured).
 Scenario harness: 10 scenarios + boss, **11/11 components PASS**
 (`backend/agent/tests/test_scenarios.py`); labeled synthetic dataset at
-`pinn/data/synthetic_rc07_scenarios.csv`. Four test suites total, all green
+`pinn/data/synthetic_rc07_scenarios.csv`. Five test suites total, all green
 offline.
+
+Session 2026-07-04 (evening) added the **operator app** (`/operator`,
+`backend/agent/operator_flow.py` + `static/operator.html`, spec + contract in
+`docs/OPERATOR_APP.md`): machine→operator alert routing with Teams-style
+toasts (+ optional real webhook via `TEAMS_WEBHOOK_URL`), intervention state
+machine notified→acknowledged→claimed_done→verified with simulated-VLM
+verification (seam ready for the real camera + omni model), claimed-vs-
+witnessed timeline, quick-lane chat (`mode:"quick"` on `/api/chat`, DeepSeek
+Flash, ~seconds, programmatic citations), and a documented mount point for
+the 3D factory map being built in a separate conversation (`#map3d-slot`).
+E2E-verified in mock on :8010 (full journey incl. 409 guards + auto-accept).
 
 ## Which model runs where (all via Crusoe, OpenAI-compatible)
 
@@ -75,9 +86,10 @@ been live-verified yet. That is THIS session's first job.
    10–60 s — raise loop interval if needed: `POST /api/loop/start?interval=15`),
    `<think>` leakage is stripped but watch for it in streams, 412 under load
    degrades that one call to mock and logs it (demo never dies).
-5. The 4 test suites are DESIGNED for mock — keep running them with
+5. The 5 test suites are DESIGNED for mock — keep running them with
    `MOCK_LLM=1` (deterministic; they'd be flaky live):
    `MOCK_LLM=1 python backend/agent/tests/test_scenarios.py` etc.
+   (5th suite: `test_operator_flow.py` — operator app, 14 checks.)
 
 ## Open items (priority order)
 
@@ -115,11 +127,17 @@ been live-verified yet. That is THIS session's first job.
   `stream:false` → same turn as JSON.
 - Overrides: `POST /api/advisory/{id}/accept|override` `{"reason": "..."}` —
   reasons feed future Skeptic + operator prompts (the learning loop).
+- Operator app: page `GET /operator` · `GET /api/operators` ·
+  `GET /api/factory/state` (also the 3D map's boot contract) ·
+  `POST /api/machine/{id}/take_charge|repair_done` `{"operator_id":"eric"}` ·
+  chat quick lane: add `"mode":"quick","machine_id":"RC-07"` to `/api/chat`.
+  New SSE kinds on the same stream: `notify` + `intervention`.
 - Docs map: architecture `docs/LLM_LAYER_README.md` · runtime flow + trust
   boundaries `docs/DATAFLOW.md` · file/dependency model `docs/REPO_MAP.md` ·
   Crusoe API `docs/CRUSOE.md` · findings in plain words
   `docs/TROUBLESHOOTING_SIMPLE.md` · build contract
-  `backend/agent/PIPELINE_CONTRACT.md` · builder logs `backend/agent/NOTES-*.md`.
+  `backend/agent/PIPELINE_CONTRACT.md` · operator app + 3D-map contract
+  `docs/OPERATOR_APP.md` · builder logs `backend/agent/NOTES-*.md`.
 
 ## Conventions
 

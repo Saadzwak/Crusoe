@@ -127,6 +127,46 @@ class OperatorOverride(BaseModel):
     at: float = Field(default_factory=_now)
 
 
+# ------------------------------------------------------------- intervention
+class InterventionStatus(str, Enum):
+    NOTIFIED = "notified"          # alert routed, nobody on it yet
+    ACKNOWLEDGED = "acknowledged"  # operator took charge (3D map shows hologram)
+    CLAIMED_DONE = "claimed_done"  # operator says the repair is finished
+    VERIFIED = "verified"          # VLM confirmed completion — intervention closed
+
+
+class VlmObservation(BaseModel):
+    """One shop-floor observation by the (simulated) VLM watcher."""
+
+    kind: str  # "activity_detected" | "repair_verified"
+    detail: str
+    confidence: float = Field(ge=0.0, le=1.0)
+    at: float = Field(default_factory=_now)
+
+
+class Intervention(BaseModel):
+    """Lifecycle of one human repair on one machine, VLM-verified.
+
+    notified → acknowledged → claimed_done → verified. Every step keeps its
+    timestamp so the UI can compare what the operator CLAIMED against what
+    the VLM OBSERVED (the claimed-vs-verified timeline)."""
+
+    id: str = Field(default_factory=_new_id)
+    machine_id: str
+    advisory_id: str = ""            # latest linked advisory
+    status: InterventionStatus = InterventionStatus.NOTIFIED
+    operator_id: str = ""            # who took charge
+    operator_name: str = ""
+    notified_operator_id: str = ""   # who received the alert
+    notified_at: Optional[float] = None
+    acknowledged_at: Optional[float] = None
+    claimed_done_at: Optional[float] = None
+    vlm_activity_at: Optional[float] = None
+    vlm_verified_at: Optional[float] = None
+    vlm_observations: list[VlmObservation] = Field(default_factory=list)
+    created_at: float = Field(default_factory=_now)
+
+
 # ---------------------------------------------------------------- plant view
 class PlantSummary(BaseModel):
     text: str

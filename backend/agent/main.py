@@ -14,7 +14,16 @@ Endpoints (PIPELINE_CONTRACT.md):
   POST /api/advisory/{id}/accept
   POST /api/advisory/{id}/override   {"reason": "..."}
   POST /api/chat            {"question": "...", "stream": true} → SSE or JSON
+                            (+ mode: "quick"|"deep", machine_id — operator app)
   GET  /api/plant           boss summary on demand
+
+Operator app (operator_flow.py — spec docs/OPERATOR_APP.md):
+  GET  /operator            operator web app (static/operator.html)
+  GET  /api/operators       personas + machine assignments
+  GET  /api/factory/state   per-machine snapshot (also feeds the 3D map)
+  POST /api/machine/{id}/take_charge  {"operator_id": "eric"}
+  POST /api/machine/{id}/repair_done  {"operator_id": "eric"}
+  SSE adds `notify` (alert/broadcast toasts) + `intervention` (lifecycle).
 
 Builder A's pipeline is imported at module top inside try/except. If absent,
 the loop runs in "triage-echo" degraded mode: HMAC-verify each reading and
@@ -44,6 +53,8 @@ from .config import settings
 from .crusoe_client import get_client
 from .knowledge import Knowledge
 from .operator import OperatorAgent
+from .operator_flow import (ASSIGNMENTS, OPERATORS, InterventionManager,
+                            build_factory_state, quick_answer, stream_quick)
 from .schemas import (PinnReading, PlantSummary, SignedReading, TickResult,
                       TriageResult)
 from .state_store import StateStore
@@ -112,6 +123,10 @@ class ServiceState:
             print(f"[main] ToolCallingOperator unavailable ({e!r}); "
                   "/api/chat falls back to the evidence-block OperatorAgent")
         self.hub = Hub()
+        # Operator app: intervention lifecycle + notification routing
+        # (operator_flow.py) — publishes `notify`/`intervention` on the hub.
+        self.interventions = InterventionManager(self.store, self.hub.publish,
+                                                 operator_agent=self.operator)
         self.pipeline: Any = None
         self.loop_task: Optional[asyncio.Task] = None
         self.running = False
@@ -224,6 +239,10 @@ async def _run_loop(interval: float) -> None:
                         S.hub.publish("advisory", tick.advisory.model_dump())
                         S.store.log_event("advisory", {"id": tick.advisory.id,
                                                        "severity": tick.advisory.severity.value})
+                        try:  # operator app: route the alert (notify/intervention)
+                            S.interventions.on_advisory(tick.advisory)
+                        except Exception as e:  # noqa: BLE001 — never kill the loop
+                            print(f"[main] on_advisory failed ({e!r}); continuing")
                 except Exception as e:  # noqa: BLE001 — survive anything, the show must go on
                     print(f"[main] tick handling failed at epoch {epoch} ({e!r}); continuing")
             if epoch % 5 == 0:
@@ -256,15 +275,58 @@ app.add_middleware(
 class ChatRequest(BaseModel):
     question: str
     stream: bool = True
+    mode: str = "deep"  # "deep" = tool-calling agent · "quick" = fast lane
+    machine_id: Optional[str] = None  # scopes the quick lane's context
 
 
 class ReasonBody(BaseModel):
     reason: str = ""
 
 
+class OperatorBody(BaseModel):
+    operator_id: str
+
+
 @app.get("/")
 async def index() -> FileResponse:
     return FileResponse(_STATIC / "index.html", media_type="text/html")
+
+
+@app.get("/operator")
+async def operator_page() -> FileResponse:
+    """Operator app (notification → machine view → chat → take charge → VLM)."""
+    return FileResponse(_STATIC / "operator.html", media_type="text/html")
+
+
+@app.get("/api/operators")
+async def operators() -> dict:
+    return {"operators": list(OPERATORS.values()), "assignments": ASSIGNMENTS}
+
+
+@app.get("/api/factory/state")
+async def factory_state() -> dict:
+    """Initial-state contract for the operator app and the 3D factory map."""
+    return build_factory_state(S.store, S.interventions,
+                               mode="mock" if S.client.is_mock else "live",
+                               epoch=S.epoch)
+
+
+@app.post("/api/machine/{machine_id}/take_charge")
+async def machine_take_charge(machine_id: str, body: OperatorBody) -> dict:
+    try:
+        iv = await S.interventions.take_charge(machine_id, body.operator_id)
+    except ValueError as e:
+        raise HTTPException(409, str(e))
+    return iv.model_dump()
+
+
+@app.post("/api/machine/{machine_id}/repair_done")
+async def machine_repair_done(machine_id: str, body: OperatorBody) -> dict:
+    try:
+        iv = await S.interventions.repair_done(machine_id, body.operator_id)
+    except ValueError as e:
+        raise HTTPException(409, str(e))
+    return iv.model_dump()
 
 
 @app.get("/api/health")
@@ -357,69 +419,11 @@ async def advisory_override(advisory_id: str, body: ReasonBody) -> dict:
 @app.post("/api/chat")
 async def chat(req: ChatRequest):
     if not req.question.strip():
-        raise HTTPException(400, "empty question")
-
-    # ---------------------------------------------------------- legacy agent
-    if S.tool_operator is None:
-        if not req.stream:
-            turn = await S.operator.answer(req.question, S.store, S.knowledge,
-                                           S.client)
-            return JSONResponse(turn.model_dump())
-
-        async def gen_legacy():
-            try:
-                async for ev in S.operator.stream_answer(req.question, S.store,
-                                                         S.knowledge, S.client):
-                    if ev.get("type") == "token":
-                        yield _sse("token", {"text": ev["text"]})
-                    elif ev.get("type") == "turn":
-                        yield _sse("turn", ev["turn"])
-            except Exception as e:  # noqa: BLE001 — keep the console alive
-                yield _sse("error", {"detail": repr(e)})
-            yield _sse("done", {})
-
-        return StreamingResponse(gen_legacy(), media_type="text/event-stream",
-                                 headers={"Cache-Control": "no-cache"})
-
-    # ---------------------------------------------- tool-calling agent (C3)
-    if not req.stream:
-        turn, provenance = await S.tool_operator.answer(req.question)
-        return JSONResponse({**turn.model_dump(), "provenance": provenance})
-
-    async def gen_tools():
-        try:
-            async for ev in S.tool_operator.stream_events(req.question):
-                kind = ev.get("type")
-                if kind == "tool_call":
-                    data = {"name": ev["name"], "params": ev["params"]}
-                    S.hub.publish("tool_call", data)  # /api/stream watchers too
-                    yield _sse("tool_call", data)
-                elif kind == "tool_result":
-                    data = {"name": ev["name"], "ok": ev["ok"],
-                            "summary": ev.get("summary", "")}
-                    S.hub.publish("tool_result", data)
-                    yield _sse("tool_result", data)
-                elif kind == "token":
-                    yield _sse("token", {"text": ev["text"]})
-                elif kind == "turn":
-                    yield _sse("turn", ev["turn"])
-        except Exception as e:  # noqa: BLE001 — keep the console alive
-            yield _sse("error", {"detail": repr(e)})
-        yield _sse("done", {})
-
-    return StreamingResponse(gen_tools(), media_type="text/event-stream",
-                             headers={"Cache-Control": "no-cache"})
-
+        ra
 
 @app.get("/api/plant")
 async def plant() -> dict:
+    """Boss summary on demand (restored after the operator-app rework — audit fix)."""
     bs = await _boss_summary()
     S.hub.publish("boss", bs.model_dump())
     return bs.model_dump()
-
-
-if __name__ == "__main__":
-    import uvicorn
-
-    uvicorn.run("backend.agent.main:app", host="0.0.0.0",
-                port=settings.backend_port, log_level="info")

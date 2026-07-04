@@ -25,7 +25,8 @@ from pathlib import Path
 from typing import Any, Optional, Union
 
 from .config import settings
-from .schemas import Advisory, AdvisoryStatus, OperatorOverride, TickResult
+from .schemas import (Advisory, AdvisoryStatus, Intervention, OperatorOverride,
+                      TickResult)
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS readings (
@@ -85,6 +86,15 @@ CREATE TABLE IF NOT EXISTS events (
     json    TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS ix_events_kind ON events(kind, id);
+
+CREATE TABLE IF NOT EXISTS interventions (
+    id          TEXT PRIMARY KEY,
+    machine_id  TEXT NOT NULL,
+    status      TEXT NOT NULL,
+    created_at  REAL NOT NULL,
+    json        TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_interv_machine ON interventions(machine_id, created_at);
 """
 
 
@@ -280,6 +290,44 @@ class StateStore:
                 "SELECT json FROM overrides ORDER BY id DESC LIMIT ?", (limit,)
             ).fetchall()
         return [OperatorOverride.model_validate_json(r["json"]) for r in rows]
+
+    # --------------------------------------------------------- interventions
+    def save_intervention(self, iv: Intervention) -> None:
+        """Upsert by id — the manager re-saves on every status transition."""
+        with self._lock:
+            self._conn.execute(
+                "INSERT INTO interventions(id, machine_id, status, created_at, json)"
+                " VALUES (?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET"
+                " status=excluded.status, json=excluded.json",
+                (iv.id, iv.machine_id, iv.status.value, iv.created_at,
+                 iv.model_dump_json()),
+            )
+            self._conn.commit()
+
+    def get_intervention(self, intervention_id: str) -> Optional[Intervention]:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT json FROM interventions WHERE id=?", (intervention_id,)
+            ).fetchone()
+        return Intervention.model_validate_json(row["json"]) if row else None
+
+    def get_active_intervention(self, machine_id: str) -> Optional[Intervention]:
+        """Newest not-yet-verified intervention for a machine (one active max)."""
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT json FROM interventions WHERE machine_id=? AND status!=?"
+                " ORDER BY created_at DESC, rowid DESC LIMIT 1",
+                (machine_id, "verified"),
+            ).fetchone()
+        return Intervention.model_validate_json(row["json"]) if row else None
+
+    def get_interventions(self, limit: int = 50) -> list[Intervention]:
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT json FROM interventions ORDER BY created_at DESC,"
+                " rowid DESC LIMIT ?", (limit,)
+            ).fetchall()
+        return [Intervention.model_validate_json(r["json"]) for r in rows]
 
     def department_snapshot(self) -> dict[str, dict]:
         """Per-department view of the LAST tick: risk label, epoch, machine."""

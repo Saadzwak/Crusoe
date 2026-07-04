@@ -76,6 +76,24 @@ class Settings:
     jury_pass_threshold: float = field(
         default_factory=lambda: float(os.environ.get("JURY_PASS_THRESHOLD", "3.0"))
     )
+    # Operator app — notifications + simulated VLM verification (operator_flow.py)
+    teams_webhook_url: str = field(
+        default_factory=lambda: os.environ.get("TEAMS_WEBHOOK_URL", "").strip()
+    )
+    public_app_url: str = field(
+        default_factory=lambda: os.environ.get(
+            "PUBLIC_APP_URL", "http://localhost:8000/operator"
+        )
+    )
+    notify_cooldown_s: float = field(
+        default_factory=lambda: float(os.environ.get("NOTIFY_COOLDOWN_S", "90"))
+    )
+    vlm_activity_delay_s: float = field(
+        default_factory=lambda: float(os.environ.get("VLM_ACTIVITY_DELAY_S", "8"))
+    )
+    vlm_verify_delay_s: float = field(
+        default_factory=lambda: float(os.environ.get("VLM_VERIFY_DELAY_S", "10"))
+    )
 
     @property
     def mock_mode(self) -> bool:

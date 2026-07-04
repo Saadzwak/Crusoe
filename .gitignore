@@ -52,3 +52,6 @@ Michelin_Roanne_Site_Selection_Dossier.pdf
 Thumbs.db
 .idea/
 .vscode/
+
+# Local Claude Code settings
+.claude/
