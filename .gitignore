@@ -76,6 +76,8 @@ files (1)/
 files (1).zip
 WhatsApp*
 *.jpeg
+# targeted exception (same policy as pinn/models): the UI header logo ships
+!backend/agent/static/assets/prator_logo.jpeg
 rapport socio-economique.docx
 Michelin_Roanne_Site_Selection_Dossier.pdf
 
