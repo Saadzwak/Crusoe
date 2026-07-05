@@ -64,6 +64,14 @@ class Settings:
     hmac_secret: str = field(
         default_factory=lambda: os.environ.get("PINN_HMAC_SECRET", "")
     )
+    # ==== INTEGRATION (demo 2026-07-05): TEMPORARY HMAC bypass ==============
+    # DEMO_SKIP_HMAC=1 skips signature VERIFICATION at the three gates (loop
+    # persistence, pipeline entry, echo tick) to shave demo latency. Signing
+    # and the whole mechanism remain intact; default is OFF (verification on).
+    # Remove the flag after the demo — never run a public deployment with it.
+    demo_skip_hmac: bool = field(
+        default_factory=lambda: os.environ.get("DEMO_SKIP_HMAC", "0") == "1"
+    )
     backend_port: int = field(
         default_factory=lambda: int(os.environ.get("BACKEND_PORT", "8000"))
     )

@@ -364,7 +364,7 @@ class Component extends DCLogic {
     this.baseMachines = this.makeMachines();
     this.state = {
       activeView: 'floor',
-      liveOk: null, live: null, liveEpoch: 0,
+      liveOk: null, live: null, liveMachines: [], liveEpoch: 0,
       faultMode: 'none',
       selectedId: null,
       drawerOpen: false,
@@ -441,27 +441,39 @@ class Component extends DCLogic {
     fetch('/api/factory/state', {cache:'no-store'})
       .then(r=>{ if(!r.ok) throw new Error('http '+r.status); return r.json(); })
       .then(s=>{
-        const m = (s.machines||[]).find(x=>x.machine_id===this.LIVE_ID) || null;
-        this.setState({live:m, liveEpoch:(s.epoch||0), liveOk:!!m});
+        const ms = s.machines||[];
+        const m = ms.find(x=>x.machine_id===this.LIVE_ID) || null;
+        this.setState({live:m, liveMachines:ms, liveEpoch:(s.epoch||0), liveOk:!!m});
       })
-      .catch(()=>{ if(this.state.liveOk!==false) this.setState({liveOk:false, live:null}); });
+      .catch(()=>{ if(this.state.liveOk!==false) this.setState({liveOk:false, live:null, liveMachines:[]}); });
   }
   liveOverlay(out, f){
-    const live = this.state.liveOk && this.state.live;
-    if(!live || f!=='none') return out;   // a running fault preview wins visually
-    const i = out.findIndex(m=>m.id===this.FOCAL);
-    if(i<0) return out;
-    const c = JSON.parse(JSON.stringify(out[i]));
-    const lr = live.last_reading||{}, sig = lr.signals||{}, pinn = lr.pinn||{};
-    ['mould_temp_C','pressure_bar','vibration_rms_mm_s','coil_power_kW'].forEach(k=>{
-      if(typeof sig[k]==='number') c.readings[k]=sig[k];
+    // CP-07 <- RC-07 (TRAINED MH-PINN state); CP-01/03/10 <- their own
+    // distinct real FD001 replays. Everything else stays design ambiance.
+    const ms = this.state.liveMachines || [];
+    if(!this.state.liveOk || !ms.length) return out;
+    const byId = {}; ms.forEach(x=>{ byId[x.machine_id]=x; });
+    const REPLAY_UNITS = {'CP-01':24, 'CP-03':76, 'CP-10':2};
+    const apply = (card, src, label)=>{
+      const c = JSON.parse(JSON.stringify(card));
+      const lr = src.last_reading||{}, sig = lr.signals||{}, pinn = lr.pinn||{};
+      ['mould_temp_C','pressure_bar','vibration_rms_mm_s','coil_power_kW'].forEach(k=>{
+        if(typeof sig[k]==='number') c.readings[k]=sig[k];
+      });
+      if(typeof pinn.health_index==='number') c.health = Math.max(0, Math.min(1, pinn.health_index));
+      if(pinn.rul_cycles!=null) c.rul = Math.round(pinn.rul_cycles);
+      c.liveAdvisory = src.active_advisory || null;
+      c.type = card.type + ' · ' + label;   // cards/drawer show {{ type }}
+      c.isLive = true;
+      return c;
+    };
+    return out.map(m=>{
+      if(m.id===this.FOCAL && byId[this.LIVE_ID] && f==='none')
+        return apply(m, byId[this.LIVE_ID], 'LIVE · MH-PINN v2');
+      if(REPLAY_UNITS[m.id] && byId[m.id])
+        return apply(m, byId[m.id], 'REPLAY · FD001 #'+REPLAY_UNITS[m.id]);
+      return m;
     });
-    if(typeof pinn.health_index==='number') c.health = Math.max(0, Math.min(1, pinn.health_index));
-    if(pinn.rul_cycles!=null) c.rul = Math.round(pinn.rul_cycles);
-    c.liveAdvisory = live.active_advisory || null;
-    c.isLive = true;
-    out[i]=c;
-    return out;
   }
   pushAgent(text){
     this.setState({messages: this.state.messages.concat([{role:'agent', text:String(text||'')}]), isTyping:false});
@@ -1135,7 +1147,7 @@ class Component extends DCLogic {
     const counts = {green:0,yellow:0,red:0};
     cur.forEach(m=> counts[this.statusMeta(m.health).status]++);
     const view = this.state.activeView;
-    const liveBadgeText = this.state.liveOk ? ('LIVE \u00b7 RC-07 \u00b7 epoch '+(this.state.liveEpoch||0))
+    const liveBadgeText = this.state.liveOk ? ('LIVE \u00b7 MH-PINN v2 \u00b7 epoch '+(this.state.liveEpoch||0))
       : this.state.liveOk===false ? 'OFFLINE \u00b7 design data' : 'CONNECTING\u2026';
     const liveBadgeStyle = "font-family:'IBM Plex Mono',monospace;font-size:10.5px;letter-spacing:.8px;padding:5px 10px;border-radius:14px;border:1px solid "
       + (this.state.liveOk ? '#2b5c46' : '#54413a') + ';color:' + (this.state.liveOk ? '#4fd39e' : '#e0a76f')

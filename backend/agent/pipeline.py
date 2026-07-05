@@ -18,6 +18,7 @@ import time
 from typing import Any, Optional
 
 from . import boss_llm, debate as debate_mod, jury as jury_mod, line_llm, triage as triage_mod
+from .config import settings  # integration: demo_skip_hmac flag
 from .crusoe_client import LLMClient
 from .hmac_auth import verify_payload
 from .prompts import reading_digest
@@ -70,7 +71,10 @@ class AdvisoryPipeline:
                 signed = SignedReading.model_validate(signed)
             payload = signed.payload if isinstance(signed.payload, dict) else {}
 
-            if not verify_payload(payload, signed.signature):
+            # DEMO BYPASS (temporary, reversible): config.demo_skip_hmac skips
+            # origin authentication for the demo; mechanism stays intact.
+            if not settings.demo_skip_hmac and \
+                    not verify_payload(payload, signed.signature):
                 return self._reject(payload, "HMAC signature mismatch — origin not authenticated", False)
 
             try:

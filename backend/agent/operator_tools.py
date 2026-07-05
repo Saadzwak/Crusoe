@@ -189,6 +189,28 @@ MACHINE_SPECS: dict[str, dict[str, Any]] = {
     },
 }
 
+# ==== INTEGRATION (demo 2026-07-05): honest replay presses in the hall =======
+# Three extra curing presses replaying DISTINCT real C-MAPSS FD001 units,
+# readings only. They share RC-07's verified signal specs (same machine type);
+# the role string states the replay honestly — no PINN inference claim, no
+# advisory pipeline on these feeds (see telemetry_source.REPLAY_ONLY_IDS).
+try:
+    from .telemetry_source import REPLAY_PRESS_UNITS as _REPLAY_UNITS
+except Exception:  # noqa: BLE001 — never break the toolbox import
+    _REPLAY_UNITS = {}
+for _mid, _unit in _REPLAY_UNITS.items():
+    MACHINE_SPECS[_mid] = {
+        "machine_id": _mid,
+        "department": "Curing",
+        "type": "C3M electric curing press (hall replay)",
+        "role": (f"Demo hall press — replays REAL C-MAPSS FD001 unit {_unit} "
+                 "readings (a distinct real trajectory; no PINN inference and "
+                 "no advisory pipeline on this feed)."),
+        "human_risk": MACHINE_SPECS["RC-07"]["human_risk"],
+        "signals": MACHINE_SPECS["RC-07"]["signals"],
+        "causal_tags": ["BEARING", "HDF", "PRESSURE"],
+    }
+
 _MODE_TO_TAG = (
     ("bear", "BEARING"), ("vib", "BEARING"),
     ("therm", "HDF"), ("heat", "HDF"), ("hdf", "HDF"),

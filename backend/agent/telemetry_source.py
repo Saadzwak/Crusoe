@@ -82,6 +82,15 @@ def _lin(x: float, lo: float, hi: float, out_lo: float, out_hi: float) -> float:
     return out_lo + (x - lo) * (out_hi - out_lo) / (hi - lo)
 
 
+# ==== INTEGRATION (demo 2026-07-05) — real-PINN hero + honest replays ========
+# CP-07 (the UI hero card) <- RC-07 fed by the TRAINED MH-PINN
+# (pinn/models/mh_pinn_v2.pt) instead of the linear stand-in; three extra hall
+# presses replay DISTINCT real FD001 units (readings only — no PINN claim, no
+# advisory pipeline; the loop skips the LLM path via REPLAY_ONLY_IDS).
+REPLAY_PRESS_UNITS = {"CP-01": 24, "CP-03": 76, "CP-10": 2}
+REPLAY_ONLY_IDS = frozenset(REPLAY_PRESS_UNITS)
+
+
 class TelemetrySource:
     """Deterministic replay — next_batch(epoch) is a pure function of epoch."""
 
@@ -92,6 +101,27 @@ class TelemetrySource:
         self._fd001 = self._load_fd001(d / "train_FD001.txt", self.UNIT)
         self._max_cycle = len(self._fd001)  # unit 1 → 192
         self._ai4i_healthy, self._ai4i_hdf = self._load_ai4i(d / "ai4i2020.csv")
+        # ---- integration: trained-PINN runtime for RC-07 (graceful fallback)
+        self._pinn_runtime = None
+        try:
+            import sys
+            _root = Path(__file__).resolve().parents[2]
+            if str(_root) not in sys.path:
+                sys.path.insert(0, str(_root))
+            from pinn.inference import PinnRuntime
+            self._pinn_runtime = PinnRuntime(repo_root=_root, unit=self.UNIT)
+            print("[telemetry] RC-07 physical state: TRAINED MH-PINN "
+                  "(pinn/models/mh_pinn_v2.pt, RUL head)")
+        except Exception as e:  # noqa: BLE001 — no torch/checkpoint: stand-in
+            print(f"[telemetry] PinnRuntime unavailable ({e!r}) — RC-07 keeps "
+                  "the linear stand-in mapping")
+        # ---- integration: distinct-real-unit replays for the hall presses
+        self._replays: dict[str, list[list[float]]] = {}
+        for _mid, _unit in REPLAY_PRESS_UNITS.items():
+            try:
+                self._replays[_mid] = self._load_fd001(d / "train_FD001.txt", _unit)
+            except Exception as e:  # noqa: BLE001
+                print(f"[telemetry] replay {_mid} (FD001 unit {_unit}) off: {e!r}")
 
     # ------------------------------------------------------------- loaders
     @staticmethod
@@ -143,6 +173,19 @@ class TelemetrySource:
         health = round(1.0 - cycle / self._max_cycle, 3)
         rul = float(self._max_cycle - cycle)
         residual = _safe_round(0.015 + 0.8 * (1.0 - health) ** 4, 4)
+        # ---- integration: the TRAINED MH-PINN drives RC-07's physical state
+        # (health/RUL/residual/modes); the linear values above stay as the
+        # documented fallback when torch or the checkpoint are unavailable.
+        model_modes: Optional[dict] = None
+        if getattr(self, "_pinn_runtime", None) is not None:
+            try:
+                _p = self._pinn_runtime.infer_at_cycle(cycle)
+                health = _p["health_index"]
+                rul = float(_p["rul_cycles"])
+                residual = _p["residual"]
+                model_modes = _p["failure_mode_probs"]
+            except Exception as e:  # noqa: BLE001 — never kill the feed
+                print(f"[telemetry] PINN inference failed at cycle {cycle}: {e!r}")
 
         # degradation fraction 0..1 over the demo arc (cycle 40 → 191)
         frac = max(0.0, min(1.0, (cycle - 40.0) / float(self._max_cycle - 1 - 40)))
@@ -173,6 +216,8 @@ class TelemetrySource:
                     f"cycles — imminent bearing wear-out suspected.")
             modes = {"bearing_wearout": 0.65, "thermal_runaway": 0.25}
 
+        if model_modes is not None:      # integration: the model's view wins
+            modes = model_modes or modes
         return PinnReading(
             machine_id="RC-07", department="Curing", epoch=epoch,
             signals=signals,
@@ -228,6 +273,39 @@ class TelemetrySource:
             signals=self._ai4i_signals(row, "chamber"), pinn=pinn, note=note,
         )
 
+    # ---------------------------------------------------- integration: replays
+    def _replay_reading(self, mid: str, epoch: int) -> PinnReading:
+        """Readings-only replay of one DISTINCT real FD001 unit (demo hall).
+
+        Same signal-mapping family as RC-07, slower advance, no drama arc,
+        neutral note wording (mock-triage discipline). The pinn block is the
+        trajectory position — labeled a replay, never PINN inference.
+        """
+        rows = self._replays[mid]
+        n = len(rows)
+        cycle = min(5 + 4 * max(epoch, 0), n - 1)
+        _, s2, s4, s11, s15 = rows[cycle - 1]
+        w2 = _lin(s2, 641.0, 644.5, 0.0, 1.0)
+        signals = {
+            "mould_temp_C": _safe_round(193.0 + 3.0 * w2),
+            "coil_power_kW": _safe_round(_lin(s4, 1398.0, 1428.0, 60.0, 92.0)),
+            "vibration_rms_mm_s": _safe_round(
+                0.9 + 0.25 * _lin(s11, 47.0, 48.5, 0.0, 1.0), 2),
+            "pressure_bar": _safe_round(17.5 - 0.4 * _lin(s15, 8.38, 8.55, 0.0, 1.0)),
+            "cycle_min": _safe_round(12.3 + 0.4 * w2, 1),
+        }
+        health = round(1.0 - cycle / n, 3)
+        return PinnReading(
+            machine_id=mid, department="Curing", epoch=epoch,
+            signals=signals,
+            pinn=PinnState(health_index=max(0.0, min(health, 0.89)),
+                           rul_cycles=float(n - cycle), residual=0.0,
+                           failure_mode_probs={}),
+            note=(f"REPLAY of real C-MAPSS FD001 unit "
+                  f"{REPLAY_PRESS_UNITS[mid]} — readings replay only, no PINN "
+                  f"inference, no advisory pipeline (demo hall press)."),
+        )
+
     # ------------------------------------------------------------- public
     def next_batch(self, epoch: int) -> list[SignedReading]:
         """One signed reading per machine for this epoch."""
@@ -236,6 +314,12 @@ class TelemetrySource:
                         self._calendering_reading(epoch),
                         self._mixing_reading(epoch)):
             payload = reading.model_dump()
+            out.append(SignedReading(payload=payload,
+                                     signature=sign_payload(payload)))
+        # ---- integration: honest hall replays (distinct REAL FD001 units,
+        # readings only — the loop keeps them out of the LLM pipeline).
+        for _mid in self._replays:
+            payload = self._replay_reading(_mid, epoch).model_dump()
             out.append(SignedReading(payload=payload,
                                      signature=sign_payload(payload)))
         return out

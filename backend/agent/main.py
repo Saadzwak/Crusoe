@@ -59,7 +59,7 @@ from .operator_flow import (ASSIGNMENTS, OPERATORS, InterventionManager,
 from .schemas import (PinnReading, PlantSummary, SignedReading, TickResult,
                       TriageResult)
 from .state_store import StateStore
-from .telemetry_source import TelemetrySource, note_risk
+from .telemetry_source import REPLAY_ONLY_IDS, TelemetrySource, note_risk
 from .hmac_auth import verify_payload
 
 # Builder A's orchestrator — optional at boot, hot when the file lands.
@@ -144,11 +144,18 @@ class ServiceState:
 
 S = ServiceState()
 
+if settings.demo_skip_hmac:  # integration: make the bypass impossible to miss
+    print("=" * 64)
+    print("!!  DEMO BYPASS ACTIVE — HMAC verification is SKIPPED         !!")
+    print("!!  (DEMO_SKIP_HMAC=1)  Remove before any real deployment.    !!")
+    print("=" * 64)
+
 
 # ===================================================================== loop
 def _echo_tick(signed: SignedReading) -> TickResult:
     """Degraded-mode triage: HMAC verify + keyword risk from the PINN note."""
-    ok = verify_payload(signed.payload, signed.signature)
+    # DEMO BYPASS (temporary, reversible): see config.demo_skip_hmac.
+    ok = settings.demo_skip_hmac or verify_payload(signed.payload, signed.signature)
     if not ok:
         return TickResult(
             machine_id=str(signed.payload.get("machine_id", "?")),
@@ -220,11 +227,16 @@ async def _run_loop(interval: float) -> None:
                     # Raw signals persist regardless of pipeline (sensor history
                     # tool); signature stored at rest for custody re-verification
                     # (C3-toolchat-v1).
-                    if verify_payload(signed.payload, signed.signature):
+                    # DEMO BYPASS (temporary, reversible): config.demo_skip_hmac.
+                    if settings.demo_skip_hmac or \
+                            verify_payload(signed.payload, signed.signature):
                         S.store.save_reading(signed.payload,
                                              signature=signed.signature)
                     tick: Optional[TickResult] = None
-                    if S.pipeline is not None:
+                    # Integration: hall replay presses are readings-only — they
+                    # never enter the LLM pipeline (echo tick stores them CLEAR).
+                    _mid = str(signed.payload.get("machine_id", ""))
+                    if S.pipeline is not None and _mid not in REPLAY_ONLY_IDS:
                         try:
                             tick = await S.pipeline.process_reading(signed)
                         except Exception as e:  # noqa: BLE001 — contract says never raise, belt+braces
