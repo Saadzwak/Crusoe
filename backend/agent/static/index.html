@@ -401,9 +401,7 @@
                 <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
               </filter>
             </defs>
-            <text x="60" y="64" style="font-family:'IBM Plex Mono',monospace;font-size:19px;font-weight:700;letter-spacing:4px;fill:#EAF1F4;">LEGIO XII AVTOMATA</text>
-            <text x="60" y="86" style="font-size:11px;letter-spacing:1.5px;fill:#7f96a1;">CURING HALL COMMAND — three ranks, two channels, one truth</text>
-            <text x="60" y="112" style="{{ legionStatusStyle }}">{{ legionStatus }}</text>
+            <text x="60" y="64" style="{{ legionStatusStyle }}">{{ legionStatus }}</text>
             <text x="60" y="740" style="font-size:10.5px;fill:#5f7682;letter-spacing:.6px;">CHANNELS</text>
             <line x1="140" y1="736" x2="176" y2="736" style="stroke:#4DA6FF;stroke-width:2.4;stroke-dasharray:9 7;"/>
             <text x="184" y="740" style="font-size:10.5px;fill:#8aa0ab;">physical — PINN twin</text>
@@ -574,11 +572,15 @@
           </svg>
           <div ref="{{ legionRef }}" style="position:absolute;inset:0;z-index:2;overflow:hidden;"></div>
           <div style="position:absolute;top:26px;left:34px;z-index:3;pointer-events:none;">
-            <div style="font-family:'IBM Plex Mono',monospace;font-size:19px;font-weight:700;letter-spacing:4px;color:#EAF1F4;">LEGIO XII AVTOMATA</div>
-            <div style="font-size:11px;letter-spacing:1.5px;color:#7f96a1;margin-top:3px;">CURING HALL COMMAND — three ranks, two channels, one truth</div>
             <div style="{{ legionStatusHtml }}">{{ legionStatus }}</div>
+            <div style="margin-top:16px;display:flex;flex-direction:column;gap:8px;pointer-events:auto;width:236px;background:#0d131add;border:1px solid #223038;border-radius:12px;padding:12px 13px;">
+              <div style="display:flex;align-items:center;gap:7px;"><span style="font-size:12px;">&#9888;</span><span style="font-size:10px;letter-spacing:1px;color:#e8b657;font-weight:700;">FAULT INJECTION &#183; DEMO</span></div>
+              <button onClick="{{ injectThermal }}" style="{{ thermalBtnStyle }}"><span style="width:8px;height:8px;border-radius:50%;background:#F0524B;flex:0 0 auto;"></span><span style="flex:1;text-align:left;">Thermal drift &#8212; CP-07</span></button>
+              <button onClick="{{ injectBearing }}" style="{{ bearingBtnStyle }}"><span style="width:8px;height:8px;border-radius:50%;background:#F0B23E;flex:0 0 auto;"></span><span style="flex:1;text-align:left;">Bearing wear &#8212; CP-07</span></button>
+              <button onClick="{{ resetFault }}" style="{{ resetBtnStyle }}"><span style="width:8px;height:8px;border-radius:50%;background:#35C08A;flex:0 0 auto;"></span><span style="flex:1;text-align:left;">Reset to normal</span></button>
+            </div>
           </div>
-          <div style="position:absolute;top:26px;right:34px;z-index:3;pointer-events:none;font-size:10.5px;color:#5f7682;letter-spacing:.6px;">drag to orbit · scroll to zoom · click a soldier for its dossier</div>
+          <div style="position:absolute;bottom:22px;right:34px;z-index:3;pointer-events:none;font-size:10px;color:#4d6470;letter-spacing:.6px;">drag to orbit &#183; scroll to zoom &#183; click a soldier for its dossier</div>
           <div style="position:absolute;bottom:22px;left:34px;z-index:3;pointer-events:none;display:flex;gap:18px;align-items:center;">
             <span style="font-size:9.5px;letter-spacing:1px;color:#5f7682;font-weight:700;">CHANNELS</span>
             <span style="display:flex;align-items:center;gap:6px;font-size:10.5px;color:#8aa0ab;"><span style="width:16px;height:3px;background:#4DA6FF;box-shadow:0 0 8px #4DA6FF;display:inline-block;"></span>physical — PINN twin</span>
@@ -1125,8 +1127,8 @@ class Component extends DCLogic {
       pick.push(body); soldiers.push({led:led, edge:edge, label:label});
       const top = new THREE.Vector3(sx, 2.4, 8.55);
       const ctop = new THREE.Vector3(SQX[Math.floor(i/4)], 3.35, 2.35);
-      const b = this._lgStrand(top, ctop, -.17, 1.5, .05, 7);
-      const gr = this._lgStrand(top, ctop, .17, 1.5, .05, 7);
+      const b = this._lgStrand(top, ctop, -.17, 1.5, .07, 7);
+      const gr = this._lgStrand(top, ctop, .17, 1.5, .07, 7);
       scene.add(b); scene.add(gr); cabMB.push(b); cabMG.push(gr);
     }
     const cGeo = new THREE.BoxGeometry(2.6, 3.2, 1.0);
@@ -1152,8 +1154,8 @@ class Component extends DCLogic {
       cents.push({led:led, edge:edge});
       const from = new THREE.Vector3(SQX[s], 3.45, 2.2);
       const to = new THREE.Vector3(0, 4.5, -4.0);
-      const b = this._lgStrand(from, to, -.2, 1.9, .06, 9);
-      const gr = this._lgStrand(from, to, .2, 1.9, .06, 9);
+      const b = this._lgStrand(from, to, -.2, 1.9, .09, 9);
+      const gr = this._lgStrand(from, to, .2, 1.9, .09, 9);
       scene.add(b); scene.add(gr); cabCB.push(b); cabCG.push(gr);
     }
     // CAESAR — gold brain on a column, laurel tori, red alert ring
@@ -1216,7 +1218,7 @@ class Component extends DCLogic {
     if(THREE.EffectComposer && THREE.RenderPass && THREE.UnrealBloomPass){
       composer = new THREE.EffectComposer(renderer);
       composer.addPass(new THREE.RenderPass(scene, camera));
-      const bloom = new THREE.UnrealBloomPass(new THREE.Vector2(w,h), .85, .6, .6);
+      const bloom = new THREE.UnrealBloomPass(new THREE.Vector2(w,h), 1.15, .55, .5);
       composer.addPass(bloom);
       this.lgBloom = bloom;
     }
@@ -1282,17 +1284,17 @@ class Component extends DCLogic {
   updateLegion3D(){
     const S = this._legionState;
     if(!S || !this.lgRenderer) return;
-    const RED=0xFF4D4D, AMBER=0xF0B23E, BLUE=0x4DA6FF, GREEN=0x2FE6A0,
-          OK=0x35C08A, DIMB=0x28527a, DIMG=0x1f5c46;
+    const RED=0xFF3B3B, AMBER=0xFFA928, BLUE=0x2E8BFF, GREEN=0x17E38C,
+          OK=0x35C08A, DIMB=0x1D6FD6, DIMG=0x14A06B;
     for(let i=0;i<12;i++){
       const d = S.solds[i]; if(!d) continue;
       const b = this.lgCabMB[i], g = this.lgCabMG[i];
       b.material.color.setHex(d.lvl===2?RED: d.lvl===1?AMBER: d.live?BLUE:DIMB);
-      b.material.opacity = (d.lvl||d.live)? .95 : .38;
-      b.userData.speed = d.lvl===2? 2.8 : d.lvl===1? 1.5 : d.live? .85 : .3;
+      b.material.opacity = (d.lvl||d.live)? 1 : .62;
+      b.userData.speed = d.lvl===2? 2.8 : d.lvl===1? 1.5 : d.live? .85 : .45;
       g.material.color.setHex(d.lost?RED: d.live?GREEN:DIMG);
-      g.material.opacity = (d.lost||d.live)? .95 : .38;
-      g.userData.speed = d.lost? 2.8 : d.live? 1.1 : .3;
+      g.material.opacity = (d.lost||d.live)? 1 : .62;
+      g.userData.speed = d.lost? 2.8 : d.live? 1.1 : .45;
       const sc = d.lvl===2?RED: d.lvl===1?AMBER: OK;
       const so = this.lgSoldiers[i];
       so.led.material.color.setHex(sc);
