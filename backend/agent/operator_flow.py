@@ -347,14 +347,41 @@ def build_factory_state(store: Any, manager: Optional[InterventionManager],
 
 # ================================================================ quick chat
 _QUICK_SYSTEM = (
-    "You are PRAETOR's line assistant on the Michelin Roanne UHP tyre line. "
-    "Answer the operator's question in under 120 words, plain language, "
-    "using ONLY the CONTEXT block. Cite every number with its bracketed "
-    "label, e.g. [sensor_history RC-07], [advisory ab12], [limits RC-07]. "
-    "You advise — the operator decides; never command. If the context does "
-    "not cover the question, say so plainly. End with one line starting "
-    "'Gaps:' naming what the context lacks."
+    "You are PRAETOR's line assistant on the Michelin Roanne curing line, "
+    "talking to a shop-floor operator who needs a fast, clear read.\n"
+    "Answer ONLY from the CONTEXT block. Never invent a number.\n\n"
+    "FORMAT (follow exactly):\n"
+    "- First line: the bottom line — is the machine OK or not, and how urgent, "
+    "in one short sentence.\n"
+    "- Then 2 to 4 bullet points starting with '- ', each one fact with its "
+    "number and what it means in plain words.\n"
+    "- If a value is dangerously past its limit (temperature, pressure or "
+    "vibration well over the max), say so bluntly and put it FIRST.\n"
+    "- Close with a one-line recommendation offered as a choice — you advise, "
+    "the operator decides. Never give an order.\n\n"
+    "RULES:\n"
+    "- Use everyday time like 'just now' or 'a few minutes ago' exactly as the "
+    "context gives it. NEVER say 'epoch', cycle numbers, ids or codes.\n"
+    "- No bracketed citations, no 'Data Provenance', no 'Gaps' line, no "
+    "jargon. Plain language a non-engineer reads in one pass.\n"
+    "- Keep it under 90 words total."
 )
+
+
+def _ago(ts: Any, now: float) -> str:
+    """Wall-clock reading age as plain operator language (never epochs)."""
+    try:
+        d = max(0.0, now - float(ts))
+    except (TypeError, ValueError):
+        return "moments ago"
+    if d < 8:
+        return "just now"
+    if d < 90:
+        return f"{int(round(d))} seconds ago"
+    m = d / 60.0
+    if m < 90:
+        return f"{int(round(m))} minutes ago"
+    return f"{int(round(m / 60.0))} hours ago"
 
 
 def _quick_context(machine_id: Optional[str], store: Any,
@@ -367,20 +394,35 @@ def _quick_context(machine_id: Optional[str], store: Any,
     blocks: list[str] = []
     citations: list[str] = []
     provenance: list[dict] = []
+    now = time.time()
 
-    rows = store.get_sensor_history(mid, limit=6)
+    rows = store.get_sensor_history(mid, limit=8)
     if rows:
-        lines = []
-        for r in rows[-3:]:
-            sig = ", ".join(f"{k}={v}" for k, v in r.get("signals", {}).items())
-            p = r.get("pinn", {}) or {}
-            lines.append(f"epoch {r.get('epoch')}: {sig} | "
-                         f"health={p.get('health_index')} rul={p.get('rul_cycles')}")
-        blocks.append(f"[sensor_history {mid}]\n" + "\n".join(lines))
+        latest = rows[-1]
+        sig = ", ".join(f"{k}={v}" for k, v in latest.get("signals", {}).items())
+        p = latest.get("pinn", {}) or {}
+        # latest reading in plain relative time (no epoch anywhere)
+        head = (f"Latest reading ({_ago(latest.get('at'), now)}): {sig} | "
+                f"health={p.get('health_index')} rul_cycles={p.get('rul_cycles')}")
+        # window trend: first vs last of the stored window, per signal
+        trend_bits = []
+        first = rows[0]
+        for k, v_last in (latest.get("signals") or {}).items():
+            v_first = (first.get("signals") or {}).get(k)
+            try:
+                if v_first is not None and abs(float(v_last) - float(v_first)) > 1e-9:
+                    arrow = "rising" if float(v_last) > float(v_first) else "falling"
+                    trend_bits.append(f"{k} {arrow} {float(v_first):g}->{float(v_last):g}")
+            except (TypeError, ValueError):
+                continue
+        span = _ago(first.get("at"), now)
+        trend = (f"\nOver the last few readings (since {span}): "
+                 + "; ".join(trend_bits)) if trend_bits else ""
+        blocks.append(f"[sensor_history {mid}]\n{head}{trend}")
         citations.append(f"sensor_history {mid}")
         provenance.append({"source": f"sensor_history {mid}",
                            "detail": f"{len(rows)} stored readings, latest "
-                                     f"epoch {rows[-1].get('epoch')}"})
+                                     f"{_ago(latest.get('at'), now)}"})
 
     adv = _latest_pending_advisory(store, mid)
     if adv is not None:

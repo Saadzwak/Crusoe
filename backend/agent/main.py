@@ -41,6 +41,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import time
 from pathlib import Path
 from typing import Any, Optional
 
@@ -103,6 +104,19 @@ def _sse(kind: str, data: Any) -> str:
 # ===================================================================== state
 class ServiceState:
     def __init__(self) -> None:
+        # Integration/demo: start every launch from a clean slate. The SQLite
+        # store persists across restarts; without this, stale readings and
+        # advisories from a previous run leak into the fresh heartbeat (the
+        # chat once described a "critical" machine that was actually healthy).
+        # Within a running session the history still accumulates normally.
+        if os.environ.get("DEMO_FRESH_START", "1") == "1":
+            try:
+                dbp = Path(settings.db_path)
+                for p in (dbp, Path(str(dbp) + "-journal"), Path(str(dbp) + "-wal")):
+                    if p.exists():
+                        p.unlink()
+            except Exception as e:  # noqa: BLE001
+                print(f"[main] fresh-start db wipe skipped ({e!r})")
         self.store = StateStore()
         self.knowledge = Knowledge()
         self.client = get_client()
@@ -235,8 +249,14 @@ async def _run_loop(interval: float) -> None:
                     tick: Optional[TickResult] = None
                     # Integration: hall replay presses are readings-only — they
                     # never enter the LLM pipeline (echo tick stores them CLEAR).
+                    # And at REST (heartbeat) nothing goes through the LLM
+                    # pipeline either: the dashboard just moves, no advisories,
+                    # no idle LLM cost. The pipeline engages when the operator
+                    # injects a fault (arc_mode == "fault").
                     _mid = str(signed.payload.get("machine_id", ""))
-                    if S.pipeline is not None and _mid not in REPLAY_ONLY_IDS:
+                    _arc = getattr(S.telemetry, "arc_mode", "fault")
+                    if (S.pipeline is not None and _mid not in REPLAY_ONLY_IDS
+                            and _arc == "fault"):
                         try:
                             tick = await S.pipeline.process_reading(signed)
                         except Exception as e:  # noqa: BLE001 — contract says never raise, belt+braces
@@ -383,6 +403,71 @@ async def loop_stop() -> dict:
         S.loop_task.cancel()
         S.loop_task = None
     return {"status": "stopped", "epoch": S.epoch}
+
+
+# ---- integration: live scenario control (fault injection / reset) ----------
+def _ensure_loop(interval: float = 2.5) -> None:
+    """Start the always-on heartbeat loop if it isn't running (dashboard lives)."""
+    if S.telemetry is None or S.running:
+        return
+    interval = max(0.5, min(interval, 60.0))
+    S.loop_task = asyncio.create_task(_run_loop(interval))
+
+
+@app.post("/api/scenario/fault")
+async def scenario_fault(kind: str = "bearing") -> dict:
+    """Inject a fault on the hero press RC-07 (drives the real degradation arc)."""
+    if S.telemetry is None:
+        raise HTTPException(503, "Telemetry source unavailable.")
+    S.telemetry.set_scenario("fault", kind=kind, epoch=S.epoch)
+    _ensure_loop()
+    return {"status": "fault", "kind": S.telemetry.fault_kind, "epoch": S.epoch}
+
+
+@app.post("/api/scenario/reset")
+async def scenario_reset() -> dict:
+    """Back to a healthy, gently-moving heartbeat — every machine healthy again."""
+    if S.telemetry is not None:
+        S.telemetry.set_scenario("heartbeat")
+    # Clear the open advisories so the plant reads healthy after a reset.
+    try:
+        for a in S.store.get_advisories(status="pending", limit=100):
+            S.operator.handle_override(a.id, "accepted",
+                                       "Auto-cleared on Reset to Normal", S.store)
+    except Exception as e:  # noqa: BLE001
+        print(f"[main] reset advisory clear failed ({e!r})")
+    _ensure_loop()
+    return {"status": "heartbeat", "epoch": S.epoch}
+
+
+@app.get("/api/history")
+async def history(limit: int = 40) -> dict:
+    """Decision audit trail for the site manager: what the agent PROPOSED and
+    what the operator DECIDED, newest first, in plain relative time."""
+    from .operator_flow import _ago  # relative-time helper (no epochs)
+
+    now = time.time()
+    out: list[dict] = []
+    for ov in S.store.get_overrides(limit=limit):
+        adv = S.store.get_advisory(ov.advisory_id)
+        out.append({
+            "at": ov.at,
+            "ago": _ago(ov.at, now),
+            "machine_id": adv.machine_id if adv else "?",
+            "severity": adv.severity.value if adv else "?",
+            "proposed_title": adv.title if adv else "(advisory not found)",
+            "proposed_action": adv.recommended_action if adv else "",
+            "decision": ov.decision,               # "accepted" | "overridden"
+            "reason": ov.reason,
+        })
+    return {"entries": out, "count": len(out), "at": now}
+
+
+@app.on_event("startup")
+async def _boot_heartbeat() -> None:
+    """A real factory dashboard is never idle — start the healthy heartbeat so
+    CP-07's PINN state ticks live from the first page load."""
+    _ensure_loop()
 
 
 @app.get("/api/stream")

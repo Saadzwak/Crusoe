@@ -122,6 +122,26 @@ class TelemetrySource:
                 self._replays[_mid] = self._load_fd001(d / "train_FD001.txt", _unit)
             except Exception as e:  # noqa: BLE001
                 print(f"[telemetry] replay {_mid} (FD001 unit {_unit}) off: {e!r}")
+        # ---- integration: live scenario state (a real factory dashboard must
+        # keep moving). "heartbeat" = RC-07 healthy, gently ticking; "fault" =
+        # the degradation arc runs from the epoch the operator injected it.
+        self.arc_mode = "heartbeat"     # "heartbeat" | "fault"
+        self.fault_kind = "bearing"     # "bearing" | "thermal"
+        self._fault_epoch0 = 0
+        self._replay_epoch0 = 0         # hall replays restart from their healthy start
+
+    def set_scenario(self, mode: str, kind: str = "bearing",
+                     epoch: int = 0) -> None:
+        """Switch RC-07 between healthy heartbeat and a fault arc (demo control)."""
+        self.arc_mode = "fault" if mode == "fault" else "heartbeat"
+        if self.arc_mode == "fault":
+            self.fault_kind = "thermal" if kind == "thermal" else "bearing"
+            self._fault_epoch0 = int(epoch)
+        else:
+            # Reset to normal: rewind the hall replays to the healthy start of
+            # their real units so every press reads green again (still a REAL
+            # trajectory — just from its early, healthy portion).
+            self._replay_epoch0 = int(epoch)
 
     # ------------------------------------------------------------- loaders
     @staticmethod
@@ -167,8 +187,18 @@ class TelemetrySource:
     # ------------------------------------------------------------- curing
     def _curing_reading(self, epoch: int) -> PinnReading:
         # D4-telemetry-v1: arc rescaled to the verified limits (see module
-        # docstring for the exact mapping). Pure function of epoch.
-        cycle = min(40 + 12 * max(epoch, 0), self._max_cycle - 1)
+        # docstring for the exact mapping).
+        # Integration: two modes. HEARTBEAT holds a healthy early cycle that
+        # oscillates gently (the dashboard stays alive at rest); FAULT runs the
+        # degradation arc from the epoch the operator injected the fault.
+        if self.arc_mode == "fault":
+            eff = max(0, epoch - self._fault_epoch0)
+            cycle = min(40 + 12 * eff, self._max_cycle - 1)
+            heartbeat = False
+        else:
+            phase = epoch % 16
+            cycle = 42 + (phase if phase < 8 else 16 - phase)   # 42..50..42, healthy
+            heartbeat = True
         _, s2, s4, s11, s15 = self._fd001[cycle - 1]
         health = round(1.0 - cycle / self._max_cycle, 3)
         rul = float(self._max_cycle - cycle)
@@ -187,34 +217,54 @@ class TelemetrySource:
             except Exception as e:  # noqa: BLE001 — never kill the feed
                 print(f"[telemetry] PINN inference failed at cycle {cycle}: {e!r}")
 
-        # degradation fraction 0..1 over the demo arc (cycle 40 → 191)
-        frac = max(0.0, min(1.0, (cycle - 40.0) / float(self._max_cycle - 1 - 40)))
+        # degradation fraction 0..1 over the demo arc; 0 while healthy.
+        frac = 0.0 if heartbeat else \
+            max(0.0, min(1.0, (cycle - 40.0) / float(self._max_cycle - 1 - 40)))
+        # thermal fault drives mould temp harder; bearing fault drives vibration.
+        f_temp = frac * (1.35 if self.fault_kind == "thermal" else 0.7)
+        f_vib = frac * (1.3 if self.fault_kind == "bearing" else 0.6)
         # C-MAPSS sensor wobble terms, each mapped to [0, 1] over unit-1 range
         w2 = _lin(s2, 641.0, 644.5, 0.0, 1.0)
         w11 = _lin(s11, 47.0, 48.5, 0.0, 1.0)
         w15 = _lin(s15, 8.38, 8.55, 0.0, 1.0)
+        # HEARTBEAT: gentle in-envelope sensor noise so the dashboard visibly
+        # lives at rest (display-level only; PINN health/RUL above are real).
+        import math
+        hb = (1.0 if heartbeat else 0.0)
+        n_temp = hb * 0.9 * math.sin(epoch * 0.9)
+        n_vib = hb * (0.35 + 0.28 * math.sin(epoch * 1.7))   # ~0.1..0.9 mm/s live wobble
+        n_pow = hb * 1.4 * math.sin(epoch * 0.6 + 1.0)
 
         signals = {
-            "mould_temp_C": _safe_round(193.0 + 3.0 * w2 + 18.0 * frac ** 2.6),
-            "coil_power_kW": _safe_round(_lin(s4, 1398.0, 1428.0, 60.0, 92.0)),
-            "vibration_rms_mm_s": _safe_round(0.85 + 0.2 * w11 + 7.3 * frac ** 2.2),
+            "mould_temp_C": _safe_round(193.0 + 3.0 * w2 + 22.0 * f_temp ** 2.4 + n_temp),
+            "coil_power_kW": _safe_round(_lin(s4, 1398.0, 1428.0, 60.0, 92.0) + n_pow),
+            "vibration_rms_mm_s": _safe_round(0.85 + 0.2 * w11 + 8.2 * f_vib ** 2.1 + n_vib),
             "pressure_bar": _safe_round(17.6 - 0.4 * w15 - 2.9 * frac ** 1.8),
             "cycle_min": _safe_round(12.4 + 0.3 * w2 + 18.8 * frac ** 3.2, 1),
         }
 
-        if epoch <= 5:
+        eff_note = 0 if heartbeat else (epoch - self._fault_epoch0)
+        if heartbeat or eff_note <= 1:
             note = ("Nominal curing cycle on press RC-07: mould temperature, "
                     "coil power and press vibration all inside the envelope.")
             modes: dict[str, float] = {}
-        elif epoch <= 9:
-            note = ("Press RC-07 trend watch: vibration rising cycle over cycle "
-                    "and a thermal hotspot is suspected on the mould shoulder.")
-            modes = {"bearing_wearout": 0.35}
+        elif eff_note <= 5:
+            driver = ("mould temperature climbing on the shoulder"
+                      if self.fault_kind == "thermal"
+                      else "vibration rising cycle over cycle")
+            note = (f"Press RC-07 trend watch: {driver}; the physics twin sees "
+                    f"remaining life falling.")
+            modes = {("thermal_runaway" if self.fault_kind == "thermal"
+                      else "bearing_wearout"): 0.35}
         else:
-            note = (f"CRITICAL drift on press RC-07: vibration and mould temperature "
-                    f"climbing toward the failure envelope, RUL down to {int(rul)} "
-                    f"cycles — imminent bearing wear-out suspected.")
-            modes = {"bearing_wearout": 0.65, "thermal_runaway": 0.25}
+            driver = ("mould temperature" if self.fault_kind == "thermal"
+                      else "vibration")
+            note = (f"CRITICAL drift on press RC-07: {driver} climbing toward the "
+                    f"failure envelope, remaining life down to {int(rul)} cycles "
+                    f"— imminent {self.fault_kind} failure suspected.")
+            modes = ({"thermal_runaway": 0.65, "bearing_wearout": 0.2}
+                     if self.fault_kind == "thermal"
+                     else {"bearing_wearout": 0.65, "thermal_runaway": 0.25})
 
         if model_modes is not None:      # integration: the model's view wins
             modes = model_modes or modes
@@ -239,7 +289,10 @@ class TelemetrySource:
 
     def _calendering_reading(self, epoch: int) -> PinnReading:
         n = len(self._ai4i_healthy)
-        if epoch == 8:  # scheduled HDF spike (UDI 3237: margin 8.6 K, 1342 rpm)
+        # Integration: the HDF spike only fires during a fault scenario (a few
+        # epochs in); at rest / after reset CL-03 stays healthy.
+        eff = (epoch - self._fault_epoch0) if self.arc_mode == "fault" else -1
+        if eff == 4:  # scheduled HDF spike (UDI 3237: margin 8.6 K, 1342 rpm)
             row = self._ai4i_hdf
             note = ("Heat-dissipation anomaly on calender CL-03 nip drive: "
                     "thermal margin collapsing and torque load rising above envelope.")
@@ -249,7 +302,7 @@ class TelemetrySource:
             row = self._ai4i_healthy[(epoch * 131 + 17) % n]
             note = ("Calender CL-03 steady: nip temperatures, web tension and "
                     "roll torque in range.")
-            if epoch == 9:
+            if eff == 5:
                 note = ("Calender CL-03 back in range after the thermal-margin "
                         "spike; nip drive load settled.")
             pinn = PinnState(health_index=_safe_round(0.84 + (epoch % 3) * 0.01),
@@ -283,7 +336,9 @@ class TelemetrySource:
         """
         rows = self._replays[mid]
         n = len(rows)
-        cycle = min(5 + 4 * max(epoch, 0), n - 1)
+        # slow advance (1 cycle/epoch) from the unit's healthy start; reset
+        # rewinds _replay_epoch0 so the hall goes green again on demand.
+        cycle = min(5 + max(0, epoch - self._replay_epoch0), n - 1)
         _, s2, s4, s11, s15 = rows[cycle - 1]
         w2 = _lin(s2, 641.0, 644.5, 0.0, 1.0)
         signals = {

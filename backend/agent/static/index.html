@@ -32,6 +32,7 @@
     @keyframes cw-up{from{transform:translateY(10px);opacity:0;}to{transform:translateY(0);opacity:1;}}
     @keyframes cw-blink{0%,100%{opacity:.2;}50%{opacity:1;}}
     @keyframes cw-fade{from{opacity:0;}to{opacity:1;}}
+    @keyframes cw-danger{0%,100%{box-shadow:0 0 0 0 rgba(240,82,75,.5);}50%{box-shadow:0 0 22px 4px rgba(240,82,75,.55);}}
   </style>
 </helmet>
 <div style="display:flex;flex-direction:column;height:100vh;width:100%;background:#0F1519;color:#EAF1F4;font-family:'IBM Plex Sans',system-ui,sans-serif;overflow:hidden;">
@@ -78,6 +79,10 @@
       <button onClick="{{ goChat }}" style="{{ chatNavStyle }}">
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M21 15a2 2 0 0 1-2 2H8l-5 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
         <span style="font-size:9px;font-weight:600;letter-spacing:.5px;margin-top:3px;">AGENT</span>
+      </button>
+      <button onClick="{{ goLog }}" style="{{ logNavStyle }}">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/><path d="M9 12h6M9 16h6"/></svg>
+        <span style="font-size:9px;font-weight:600;letter-spacing:.5px;margin-top:3px;">LOG</span>
       </button>
     </div>
 
@@ -229,6 +234,34 @@
         </div>
       </sc-if>
 
+      <sc-if value="{{ isLog }}" hint-placeholder-val="{{ true }}">
+        <div style="position:absolute;inset:0;overflow-y:auto;padding:26px 30px;background:#0F1519;" data-screen-label="Decision history">
+          <div style="font-size:11px;letter-spacing:1.5px;color:#7f96a1;font-weight:600;">DECISION HISTORY</div>
+          <div style="font-size:20px;font-weight:700;margin:2px 0 4px;">What the agent proposed &amp; what the operator did</div>
+          <div style="font-size:12px;color:#8aa0ab;margin-bottom:20px;">Full audit trail for the site manager — newest first.</div>
+          <sc-if value="{{ historyEmpty }}" hint-placeholder-val="{{ false }}">
+            <div style="color:#6f8792;font-size:13px;padding:22px 0;">No operator decisions logged yet. Accept or override an alert and it appears here.</div>
+          </sc-if>
+          <sc-for list="{{ historyEntries }}" as="h" hint-placeholder-count="3">
+            <div style="{{ h.rowStyle }}">
+              <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;">
+                <div style="display:flex;align-items:center;gap:9px;">
+                  <span style="{{ h.decPill }}">{{ h.decLabel }}</span>
+                  <span style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:#eaf1f4;">{{ h.machine }}</span>
+                  <span style="{{ h.sevPill }}">{{ h.sev }}</span>
+                </div>
+                <span style="font-size:11px;color:#7f96a1;">{{ h.ago }}</span>
+              </div>
+              <div style="font-size:13px;color:#c4d3da;margin-top:9px;"><span style="color:#7f96a1;">Agent proposed:</span> {{ h.proposed }}</div>
+              <div style="font-size:12.5px;color:#aebcc4;margin-top:4px;"><span style="color:#7f96a1;">Recommended action:</span> {{ h.action }}</div>
+              <sc-if value="{{ h.hasReason }}" hint-placeholder-val="{{ false }}">
+                <div style="font-size:12.5px;color:#aebcc4;margin-top:4px;"><span style="color:#7f96a1;">Operator note:</span> {{ h.reason }}</div>
+              </sc-if>
+            </div>
+          </sc-for>
+        </div>
+      </sc-if>
+
     </div>
 
     <sc-if value="{{ showDrawer }}" hint-placeholder-val="{{ false }}">
@@ -299,7 +332,7 @@
           <div style="{{ sel.recCardStyle }}">
             <div style="display:flex;align-items:center;gap:8px;margin-bottom:9px;">
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="{{ sel.recColor }}" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 8v4M12 16h.01"/></svg>
-              <span style="font-size:10.5px;letter-spacing:1px;font-weight:700;color:{{ sel.recColor }};">AGENT RECOMMENDATION</span>
+              <span style="font-size:10.5px;letter-spacing:1px;font-weight:700;color:{{ sel.recColor }};">{{ sel.recHeader }}</span>
             </div>
             <div style="font-size:15px;font-weight:600;color:#eaf1f4;line-height:1.35;">{{ sel.recTitle }}</div>
             <div style="font-size:12.5px;color:#aebcc4;line-height:1.5;margin-top:8px;">{{ sel.recDetail }}</div>
@@ -364,7 +397,7 @@ class Component extends DCLogic {
     this.baseMachines = this.makeMachines();
     this.state = {
       activeView: 'floor',
-      liveOk: null, live: null, liveMachines: [], liveEpoch: 0,
+      liveOk: null, live: null, liveMachines: [], liveEpoch: 0, history: [],
       faultMode: 'none',
       selectedId: null,
       drawerOpen: false,
@@ -383,7 +416,7 @@ class Component extends DCLogic {
     };
   }
 
-  makeMachines(){
+  makeMachines(allHealthy){
     // two production lines of 6 presses; focal CP-07 sits front-centre
     const xs = [-19.2,-11.5,-3.8,3.8,11.5,19.2];
     const layout = [
@@ -392,18 +425,19 @@ class Component extends DCLogic {
     ];
     return layout.map((L,i)=>{
       const idx = parseInt(L.id.slice(3),10);
-      let health = 0.80 + ((idx*13)%15)/100;
-      if(L.id==='CP-03') health = 0.66;
-      if(L.id==='CP-10') health = 0.71;
+      let health = 0.84 + ((idx*7)%11)/100;               // 0.84..0.94 healthy spread
+      if(!allHealthy){ if(L.id==='CP-03') health = 0.66; if(L.id==='CP-10') health = 0.71; }
       if(L.id==='CP-07') health = 0.88;
-      const temp = 150.4 + (idx%5)*0.7;
-      const pressure = 15.1 + (idx%4)*0.25;
-      let vib = 1.8 + (idx%6)*0.16;
-      if(L.id==='CP-03') vib = 3.2;
-      if(L.id==='CP-10') vib = 3.0;
-      const power = 50 + (idx%7)*1.7;
-      const rul = 9200 + idx*1450;
-      return { id:L.id, x:L.x, z:L.z, bay:idx, type:'Curing Press · 63" bladder', health,
+      // realistic healthy readings inside the verified curing envelope (live
+      // machines override these; ambiance stays plausibly green)
+      const temp = 194.0 + (idx%5)*0.7;
+      const pressure = 17.2 + (idx%4)*0.18;
+      let vib = 1.05 + (idx%6)*0.12;
+      if(!allHealthy){ if(L.id==='CP-03') vib = 3.2; if(L.id==='CP-10') vib = 3.0; }
+      const power = 66.0 + (idx%7)*1.2;
+      // RUL derived from health so the health ring and the cycles NEVER disagree
+      const rul = Math.round(40 + health*260);            // ~62..285 cycles
+      return { id:L.id, x:L.x, z:L.z, bay:idx, type:'Curing Press \u00b7 63" bladder', health,
         readings:{ mould_temp_C:temp, pressure_bar:pressure, vibration_rms_mm_s:vib, coil_power_kW:power }, rul };
     });
   }
@@ -435,7 +469,7 @@ class Component extends DCLogic {
   // RC-07 via /api/factory/state; the other 11 presses are design ambiance —
   // the backend streams ONE real machine. Graceful degrade: without a server
   // the design's simulated data takes over, never a broken screen.
-  startLive(){ this.pollLive(); this._livePoll = setInterval(()=>this.pollLive(), 4000); }
+  startLive(){ this.pollLive(); this._livePoll = setInterval(()=>this.pollLive(), 1500); }
   stopLive(){ if(this._livePoll) clearInterval(this._livePoll); }
   pollLive(){
     fetch('/api/factory/state', {cache:'no-store'})
@@ -446,6 +480,11 @@ class Component extends DCLogic {
         this.setState({live:m, liveMachines:ms, liveEpoch:(s.epoch||0), liveOk:!!m});
       })
       .catch(()=>{ if(this.state.liveOk!==false) this.setState({liveOk:false, live:null, liveMachines:[]}); });
+    // decision audit trail for the manager (what was proposed vs decided)
+    fetch('/api/history?limit=40', {cache:'no-store'})
+      .then(r=>r.ok?r.json():null)
+      .then(j=>{ if(j && j.entries) this.setState({history:j.entries}); })
+      .catch(()=>{});
   }
   liveOverlay(out, f){
     // CP-07 <- RC-07 (TRAINED MH-PINN state); CP-01/03/10 <- their own
@@ -463,12 +502,15 @@ class Component extends DCLogic {
       if(typeof pinn.health_index==='number') c.health = Math.max(0, Math.min(1, pinn.health_index));
       if(pinn.rul_cycles!=null) c.rul = Math.round(pinn.rul_cycles);
       c.liveAdvisory = src.active_advisory || null;
+      c.spec = src.signals_spec || null;     // real verified limits per signal
       c.type = card.type + ' · ' + label;   // cards/drawer show {{ type }}
       c.isLive = true;
       return c;
     };
     return out.map(m=>{
-      if(m.id===this.FOCAL && byId[this.LIVE_ID] && f==='none')
+      // CP-07 shows the live PINN state whether healthy (heartbeat) or in a
+      // fault ramp — the backend owns the arc now, so we always overlay it.
+      if(m.id===this.FOCAL && byId[this.LIVE_ID])
         return apply(m, byId[this.LIVE_ID], 'LIVE · MH-PINN v2');
       if(REPLAY_UNITS[m.id] && byId[m.id])
         return apply(m, byId[m.id], 'REPLAY · FD001 #'+REPLAY_UNITS[m.id]);
@@ -477,6 +519,51 @@ class Component extends DCLogic {
   }
   pushAgent(text){
     this.setState({messages: this.state.messages.concat([{role:'agent', text:String(text||'')}]), isTyping:false});
+  }
+  // Verified curing-press limits (fallback when a card has no live spec).
+  // Mirrors backend/agent/limits.py — real ranges, not the mockup's guesses.
+  curingSpec(){ return {
+    mould_temp_C:{operating:[180,210], unit:'°C'},
+    pressure_bar:{operating:[16,20], unit:'bar'},
+    vibration_rms_mm_s:{operating:[0,2.8], trip:7.1, zones:{A:1.12,B:2.8,C:7.1}, unit:'mm/s'},
+    coil_power_kW:{operating:[60,92], trip:95, unit:'kW'}
+  };}
+  // How far a reading is past its verified limit — 'how red the red is'.
+  evalLimit(key, val, spec){
+    const s = spec && spec[key];
+    if(!s || typeof val!=='number') return {color:'#8aa0ab', state:'—'};
+    const op = s.operating; if(!op || op.length<2) return {color:'#35C08A', state:'reading'};
+    const trip = (s.trip!=null)? s.trip : op[1];
+    if(val > op[1]){
+      const over = op[1]>0? Math.round((val-op[1])/op[1]*100):0;
+      if(s.zones){
+        const z = val>=s.zones.C?'D — danger': val>=s.zones.B?'C — high':'B';
+        return {color: val>=trip?'#F0524B':'#F0B23E', state:'Zone '+z+' · +'+over+'% over safe'};
+      }
+      return {color: val>=trip?'#F0524B':'#F0B23E',
+              state:(val>=trip?'OVER LIMIT ':'Above max ')+'+'+over+'%'};
+    }
+    if(val < op[0]){
+      const under = op[0]>0? Math.round((op[0]-val)/op[0]*100):0;
+      return {color:'#F0B23E', state:'Below min \u2212'+under+'%'};
+    }
+    return {color:'#35C08A', state:'In range'};
+  }
+  healAll(){ this.baseMachines = this.makeMachines(true); }
+  deriveHistory(h){
+    const accepted = h.decision==='accepted';
+    const sev = (h.severity||'').toUpperCase();
+    const sevColor = (sev==='CRITICAL'||sev==='HIGH')?'#F0524B':sev==='WATCH'?'#F0B23E':'#35C08A';
+    const decColor = accepted?'#35C08A':'#F0B23E';
+    return {
+      machine:h.machine_id, ago:h.ago, sev:sev,
+      proposed:h.proposed_title, action:h.proposed_action||'\u2014',
+      reason:h.reason||'', hasReason:!!(h.reason),
+      decLabel: accepted?'ACCEPTED':'OVERRIDDEN',
+      decPill:{fontSize:'10px',fontWeight:700,letterSpacing:'.5px',padding:'3px 9px',borderRadius:'20px',color:decColor,background:decColor+'1e',border:'1px solid '+decColor+'44'},
+      sevPill:{fontSize:'9.5px',fontWeight:700,padding:'2px 7px',borderRadius:'20px',color:sevColor,background:sevColor+'18'},
+      rowStyle:{background:'#141D24',border:'1px solid #223038',borderRadius:'12px',padding:'15px 17px',marginBottom:'12px'}
+    };
   }
 
   // ---- scenario ----
@@ -894,8 +981,8 @@ class Component extends DCLogic {
   injectFault(mode){
     if(this._ramp) clearInterval(this._ramp);
     this.setState({faultMode:mode, faultProgress:0, selectedId:this.FOCAL, drawerOpen:true});
-    // kick the REAL signed-telemetry loop: drift epochs -> real advisories
-    fetch('/api/loop/start?interval=2.0&reset=1', {method:'POST'}).catch(()=>{});
+    // inject the fault on the REAL hero press RC-07 (backend drives the arc)
+    fetch('/api/scenario/fault?kind='+mode, {method:'POST'}).then(()=>this.pollLive()).catch(()=>{});
     const dur = 3000, t0 = performance.now();
     this._ramp = setInterval(()=>{
       let p = (performance.now()-t0)/dur;
@@ -905,7 +992,9 @@ class Component extends DCLogic {
     }, 80);
   }
   resetFault(){
-    fetch('/api/loop/stop', {method:'POST'}).catch(()=>{});
+    fetch('/api/scenario/reset', {method:'POST'}).then(()=>this.pollLive()).catch(()=>{});
+    this.healAll();
+    this.setState({decisions:{}, faultMode:'none', faultProgress:0, history:[]});
     if(this._ramp) clearInterval(this._ramp);
     const p0 = this.state.faultProgress || 0;
     if(p0<=0 || this.state.faultMode==='none'){ this.setState({faultMode:'none', faultProgress:0}); return; }
@@ -1087,16 +1176,16 @@ class Component extends DCLogic {
     if(!m) return null;
     const meta = this.statusMeta(m.health);
     const r = m.readings;
-    const tState = v => v>168?{c:'#F0524B',s:'Above cure window'}: v>160?{c:'#F0B23E',s:'Drifting high'}:{c:'#35C08A',s:'In window'};
-    const vState = v => v>6?{c:'#F0524B',s:'Zone C — high'}: v>4?{c:'#F0B23E',s:'Elevated'}:{c:'#35C08A',s:'Smooth'};
-    const pState = v => (v<14||v>17)?{c:'#F0B23E',s:'Watch'}:{c:'#35C08A',s:'Nominal'};
-    const wState = v => v>62?{c:'#F0B23E',s:'High draw'}:{c:'#35C08A',s:'Nominal'};
-    const ts = tState(r.mould_temp_C), vs = vState(r.vibration_rms_mm_s), ps = pState(r.pressure_bar), ws = wState(r.coil_power_kW);
+    const spec = m.spec || this.curingSpec();
+    const et=this.evalLimit('mould_temp_C', r.mould_temp_C, spec);
+    const ep=this.evalLimit('pressure_bar', r.pressure_bar, spec);
+    const evb=this.evalLimit('vibration_rms_mm_s', r.vibration_rms_mm_s, spec);
+    const ew=this.evalLimit('coil_power_kW', r.coil_power_kW, spec);
     const tiles = [
-      {label:'Mould Temp', value:r.mould_temp_C.toFixed(1), unit:'°C', color:ts.c, state:ts.s},
-      {label:'Pressure', value:r.pressure_bar.toFixed(1), unit:'bar', color:ps.c, state:ps.s},
-      {label:'Vibration', value:r.vibration_rms_mm_s.toFixed(1), unit:'mm/s RMS', color:vs.c, state:vs.s},
-      {label:'Coil Power', value:r.coil_power_kW.toFixed(1), unit:'kW', color:ws.c, state:ws.s}
+      {label:'Mould Temp', value:r.mould_temp_C.toFixed(1), unit:'\u00b0C', color:et.color, state:et.state},
+      {label:'Pressure', value:r.pressure_bar.toFixed(1), unit:'bar', color:ep.color, state:ep.state},
+      {label:'Vibration', value:r.vibration_rms_mm_s.toFixed(1), unit:'mm/s', color:evb.color, state:evb.state},
+      {label:'Coil Power', value:r.coil_power_kW.toFixed(1), unit:'kW', color:ew.color, state:ew.state}
     ];
     const C = 2*Math.PI*34;
     const fmodes = this.failureModesFor(m).map(fm=>{
@@ -1105,10 +1194,11 @@ class Component extends DCLogic {
     });
     const rec = this.recFor(m);
     const dec = this.state.decisions[id];
-    const cyclesPerDay = 320;
+    const cyclesPerDay = 96;   // ~15-min curing cycles over 24h
     const days = m.rul/cyclesPerDay;
     const rulTime = days<2 ? Math.round(days*24)+' hrs' : Math.round(days)+' days';
-    const rulColor = m.rul<1500?'#F0524B':m.rul<6000?'#F0B23E':'#8aa0ab';
+    // colour by HEALTH so the ring and the cycles number always tell one story
+    const rulColor = m.health<0.45?'#F0524B':m.health<0.70?'#F0B23E':'#8aa0ab';
     const plainMap = { green:'Operating normally, inside the cure window.', yellow:'A signal is trending — worth keeping an eye on.', red:'Out of safe range — the agent recommends action now.' };
     let decisionText='', decisionStyle={};
     if(dec){
@@ -1133,8 +1223,12 @@ class Component extends DCLogic {
       rulTime, rulColor,
       failureModes: fmodes,
       recColor: rec.color, recTitle: rec.title, recDetail: rec.detail,
+      recHeader: rec.severity==='red' ? '\u26a0 IMMEDIATE ACTION REQUIRED' : 'AGENT RECOMMENDATION',
       acceptLabel: rec.acceptLabel, overrideLabel: rec.overrideLabel,
-      recCardStyle:{ background:rec.color+'12', border:'1px solid '+rec.color+'40', borderRadius:'12px', padding:'16px' },
+      recCardStyle: (rec.severity==='red')
+        ? { background:'#F0524B22', border:'2px solid #F0524B', borderRadius:'12px', padding:'16px', animation:'cw-danger 1.4s infinite' }
+        : { background:rec.color+'12', border:'1px solid '+rec.color+'40', borderRadius:'12px', padding:'16px' },
+      recUrgent: rec.severity==='red',
       acceptFn: ()=>this.openConfirm('accept'),
       overrideFn: ()=>this.openConfirm('override'),
       decided: !!dec, undecided: !dec,
@@ -1187,10 +1281,14 @@ class Component extends DCLogic {
       liveBadgeText, liveBadgeStyle,
       activeView:view,
       clock:this.state.clock,
-      isFloor: view==='floor', isOverview: view==='overview', isChat: view==='chat',
+      isFloor: view==='floor', isOverview: view==='overview', isChat: view==='chat', isLog: view==='log',
       goFloor: ()=>this.setState({activeView:'floor'}),
       goOverview: ()=>this.setState({activeView:'overview'}),
       goChat: ()=>this.setState({activeView:'chat'}),
+      goLog: ()=>this.setState({activeView:'log'}),
+      logNavStyle: this.navStyle(view==='log'),
+      historyEntries: (this.state.history||[]).map(h=>this.deriveHistory(h)),
+      historyEmpty: !((this.state.history||[]).length),
       floorNavStyle: this.navStyle(view==='floor'),
       overviewNavStyle: this.navStyle(view==='overview'),
       chatNavStyle: this.navStyle(view==='chat'),
