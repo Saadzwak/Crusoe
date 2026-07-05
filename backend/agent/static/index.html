@@ -1046,10 +1046,12 @@ class Component extends DCLogic {
     const messages = this.state.messages.concat([{role:'user', text}]);
     this.setState({messages, chatInput:'', isTyping:true});
     clearTimeout(this._typing);
-    // real PRAETOR agent first (quick lane, scoped to the live machine);
-    // the design's scripted agent remains as the offline fallback.
+    // real PRAETOR agent (DEEP tool-calling lane): it actually queries the
+    // machine's live data per question. Scoped to the press the operator is
+    // looking at; the design's scripted agent stays as the offline fallback.
     fetch('/api/chat', {method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({question:text, stream:false, mode:'quick', machine_id:this.LIVE_ID})})
+      body: JSON.stringify({question:text, stream:false, mode:'deep',
+                            machine_id:(this.state.selectedId||this.FOCAL)})})
       .then(r=>{ if(!r.ok) throw new Error('http '+r.status); return r.json(); })
       .then(j=>{
         const t = j && (j.answer || j.content || (j.turn && j.turn.content));

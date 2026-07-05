@@ -532,15 +532,28 @@ async def chat(req: ChatRequest):
     # ------------------------------------------------------------------
     if not req.question.strip():
         raise HTTPException(422, "empty question")
-    if req.mode == "quick" or S.tool_operator is None:
-        turn, provenance = await quick_answer(req.question, req.machine_id,
-                                              S.store, S.client, S.interventions)
-        return {"answer": turn.get("content", ""), "mode": "quick",
-                "provenance": provenance, "turn": turn}
-    turn, provenance = await S.tool_operator.answer(req.question)
-    data = turn.model_dump() if hasattr(turn, "model_dump") else dict(turn)
-    return {"answer": data.get("content", ""), "mode": "deep",
-            "provenance": provenance, "turn": data}
+    # DEFAULT = the DEEP tool-calling operator: it actually calls retrieval
+    # tools (run_diagnostic / sensor history / machine limits / drift /
+    # integrity) per question and answers from what it consulted, scoped to
+    # the machine the operator is looking at (req.machine_id). The quick lane
+    # (single fixed-context call) is kept only as an explicit opt-in / fallback
+    # — it was giving the same answer to every question (see git log).
+    if S.tool_operator is not None and req.mode != "quick":
+        turn, provenance = await S.tool_operator.answer(
+            req.question, machine_hint=req.machine_id)
+        data = turn.model_dump() if hasattr(turn, "model_dump") else dict(turn)
+        answer = data.get("content", "")
+        # Display consistency: the store id is RC-07 but the operator's screen
+        # shows the hero card CP-07 — speak the name they see.
+        if str(req.machine_id or "").upper() == "CP-07":
+            answer = answer.replace("RC-07", "CP-07")
+            data["content"] = answer
+        return {"answer": answer, "mode": "deep",
+                "provenance": provenance, "turn": data}
+    turn, provenance = await quick_answer(req.question, req.machine_id,
+                                          S.store, S.client, S.interventions)
+    return {"answer": turn.get("content", ""), "mode": "quick",
+            "provenance": provenance, "turn": turn}
 
 @app.get("/api/plant")
 async def plant() -> dict:
