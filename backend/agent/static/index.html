@@ -49,7 +49,10 @@
     </div>
     <div style="display:flex;align-items:center;gap:16px;">
       <div style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:#9fb4bf;letter-spacing:.5px;">{{ clock }}</div>
-      <div style="{{ liveBadgeStyle }}">{{ liveBadgeText }}</div>
+      <div style="display:flex;border:1px solid #2a3a44;border-radius:8px;overflow:hidden;">
+        <button onClick="{{ setRoleOperator }}" style="{{ roleOpStyle }}">OPERATOR</button>
+        <button onClick="{{ setRoleManager }}" style="{{ roleMgrStyle }}">MANAGER</button>
+      </div>
       <div style="width:1px;height:24px;background:#26343d;"></div>
       <div style="{{ alertPillStyle }}">
         <div style="{{ alertDotStyle }}"></div>
@@ -84,6 +87,12 @@
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/><path d="M9 12h6M9 16h6"/></svg>
         <span style="font-size:9px;font-weight:600;letter-spacing:.5px;margin-top:3px;">LOG</span>
       </button>
+      <sc-if value="{{ isManager }}" hint-placeholder-val="{{ false }}">
+      <button onClick="{{ goFlow }}" style="{{ flowNavStyle }}">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="5" cy="12" r="2.2"/><circle cx="12" cy="5" r="2.2"/><circle cx="12" cy="19" r="2.2"/><circle cx="19" cy="12" r="2.2"/><path d="M7 11l3-4.5M7 13l3 4.5M14 6.5l3.5 4M14 17.5l3.5-4"/></svg>
+        <span style="font-size:9px;font-weight:600;letter-spacing:.5px;margin-top:3px;">FLOW</span>
+      </button>
+      </sc-if>
     </div>
 
     <div style="flex:1;position:relative;min-width:0;" data-screen-label="{{ activeView }}">
@@ -262,6 +271,64 @@
         </div>
       </sc-if>
 
+      <sc-if value="{{ isFlow }}" hint-placeholder-val="{{ true }}">
+        <div style="position:absolute;inset:0;overflow-y:auto;padding:26px 30px;background:#0F1519;" data-screen-label="Information flow">
+          <div style="font-size:11px;letter-spacing:1.5px;color:#7f96a1;font-weight:600;">INFORMATION LAYER</div>
+          <div style="font-size:20px;font-weight:700;margin:2px 0 4px;">Message flow between stations — live</div>
+          <div style="font-size:12px;color:#8aa0ab;margin-bottom:14px;">Every card below is a real logged hop from the shared store's flight recorder — telemetry custody, triage, drafting, debate, jury, advisory, human decision, paging. Nothing simulated.</div>
+          <div style="{{ flowModeStyle }}">{{ flowModeLabel }}</div>
+          <sc-if value="{{ flowHasBlocked }}" hint-placeholder-val="{{ false }}">
+            <div style="display:flex;align-items:center;gap:10px;background:#F0524B18;border:1.5px solid #F0524B;border-radius:10px;padding:11px 14px;margin-bottom:16px;">
+              <span style="font-size:15px;">&#9888;</span>
+              <div>
+                <div style="font-size:11px;font-weight:700;letter-spacing:.8px;color:#F0524B;">MESSAGE BLOCKED HERE</div>
+                <div style="font-size:12.5px;color:#eac7c5;margin-top:2px;">{{ flowBlockedLabel }}</div>
+              </div>
+            </div>
+          </sc-if>
+
+          <div style="font-size:10.5px;letter-spacing:1.2px;color:#5f7682;font-weight:700;margin-bottom:8px;">PIPELINE STATIONS</div>
+          <div style="display:flex;align-items:center;gap:6px;overflow-x:auto;padding-bottom:10px;margin-bottom:18px;">
+            <sc-for list="{{ flowNodes }}" as="n" hint-placeholder-count="10">
+              <span style="{{ n.arrowStyle }}">&#8594;</span>
+              <div style="{{ n.boxStyle }}">
+                <div style="display:flex;align-items:center;gap:7px;">
+                  <div style="{{ n.dotStyle }}"></div>
+                  <span style="font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:700;color:#EAF1F4;">{{ n.name }}</span>
+                  <span style="font-family:'IBM Plex Mono',monospace;font-size:10.5px;color:#5f7682;">{{ n.count }}</span>
+                </div>
+                <div style="font-size:9.5px;color:#7f96a1;margin-top:4px;white-space:nowrap;">{{ n.caption }}</div>
+              </div>
+            </sc-for>
+          </div>
+
+          <div style="font-size:10.5px;letter-spacing:1.2px;color:#5f7682;font-weight:700;margin-bottom:8px;">TELEMETRY IN — LAST VERIFIED READING PER MACHINE</div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:20px;">
+            <sc-for list="{{ flowSources }}" as="s" hint-placeholder-count="6">
+              <div style="{{ s.chipStyle }}">
+                <div style="{{ s.dotStyle }}"></div>
+                <span style="font-family:'IBM Plex Mono',monospace;font-size:11.5px;color:#c4d3da;">{{ s.name }}</span>
+                <span style="font-size:10.5px;color:#5f7682;">{{ s.ago }}</span>
+              </div>
+            </sc-for>
+          </div>
+
+          <div style="font-size:10.5px;letter-spacing:1.2px;color:#5f7682;font-weight:700;margin-bottom:8px;">AGENT MESSAGES — NEWEST FIRST</div>
+          <sc-if value="{{ flowFeedEmpty }}" hint-placeholder-val="{{ false }}">
+            <div style="color:#6f8792;font-size:13px;padding:14px 0;">No agent traffic right now — the LLM layer engages when telemetry leaves the envelope (run a fault from the Floor view to watch messages travel).</div>
+          </sc-if>
+          <sc-for list="{{ flowFeed }}" as="f" hint-placeholder-count="4">
+            <div style="{{ f.rowStyle }}">
+              <div style="{{ f.dotStyle }}"></div>
+              <span style="font-family:'IBM Plex Mono',monospace;font-size:11.5px;color:#eaf1f4;min-width:56px;">{{ f.machine }}</span>
+              <span style="font-family:'IBM Plex Mono',monospace;font-size:10.5px;color:#5f7682;min-width:150px;">{{ f.route }}</span>
+              <span style="font-size:12.5px;color:#c4d3da;flex:1;">{{ f.label }}</span>
+              <span style="font-size:10.5px;color:#7f96a1;white-space:nowrap;">{{ f.ago }}</span>
+            </div>
+          </sc-for>
+        </div>
+      </sc-if>
+
     </div>
 
     <sc-if value="{{ showDrawer }}" hint-placeholder-val="{{ false }}">
@@ -398,6 +465,7 @@ class Component extends DCLogic {
     this.state = {
       activeView: 'floor',
       liveOk: null, live: null, liveMachines: [], liveEpoch: 0, history: [],
+      role: 'operator', flow: null,
       faultMode: 'none',
       selectedId: null,
       drawerOpen: false,
@@ -485,6 +553,11 @@ class Component extends DCLogic {
       .then(r=>r.ok?r.json():null)
       .then(j=>{ if(j && j.entries) this.setState({history:j.entries}); })
       .catch(()=>{});
+    // inter-station message flow (manager view) — real flight-recorder events
+    fetch('/api/flow?limit=120', {cache:'no-store'})
+      .then(r=>r.ok?r.json():null)
+      .then(j=>{ if(j && j.messages) this.setState({flow:j}); })
+      .catch(()=>{});
   }
   liveOverlay(out, f){
     // CP-07 <- RC-07 (TRAINED MH-PINN state); CP-01/03/10 <- their own
@@ -564,6 +637,69 @@ class Component extends DCLogic {
       sevPill:{fontSize:'9.5px',fontWeight:700,padding:'2px 7px',borderRadius:'20px',color:sevColor,background:sevColor+'18'},
       rowStyle:{background:'#141D24',border:'1px solid #223038',borderRadius:'12px',padding:'15px 17px',marginBottom:'12px'}
     };
+  }
+  // ==== INFORMATION FLOW (manager view) ======================================
+  // Renders the /api/flow feed — REAL flight-recorder events from the shared
+  // store (each hop was logged by the pipeline stage that performed it).
+  // Nothing here is simulated: at rest you see telemetry+boss only, because
+  // the agent layer genuinely stands by until a fault engages it.
+  deriveFlow(){
+    const fl = this.state.flow || {};
+    const msgs = fl.messages || [];                 // newest first
+    const now = fl.at || (Date.now()/1000);
+    const NODES = ['PINN','GATE','TRIAGE','DRAFT','DEBATE','JURY','ADVISORY','OPERATOR','NOTIFY','BOSS'];
+    const CAPT = {PINN:'physical twin', GATE:'HMAC custody', TRIAGE:'3-tier screen',
+      DRAFT:'line agent', DEBATE:'advocate vs skeptic', JURY:'quality gate',
+      ADVISORY:'shared store', OPERATOR:'human decision', NOTIFY:'Teams page', BOSS:'plant summary'};
+    const color = s => s==='blocked' ? '#F0524B' : s==='warn' ? '#F0B23E' : s==='ok' ? '#35C08A' : '#39505c';
+    const stat = {}, cnt = {};
+    NODES.forEach(n=>{ stat[n]={s:'idle', at:0}; cnt[n]=0; });
+    msgs.forEach(m=>{
+      const age = now - (m.at||0);
+      [m.from, m.to].forEach(n=>{
+        if(cnt[n]===undefined) return;
+        if(age <= 60) cnt[n]++;
+        if(age <= 25 && (m.at||0) > stat[n].at) stat[n] = {s:m.status, at:m.at};
+      });
+    });
+    const nodes = NODES.map((n,i)=>({ name:n, caption:CAPT[n], count:String(cnt[n]),
+      arrowStyle:{display:(i?'block':'none'), color:'#39505c', fontSize:'15px', flex:'0 0 auto'},
+      dotStyle:{width:'8px',height:'8px',borderRadius:'50%',flex:'0 0 auto',
+        background:color(stat[n].s),
+        boxShadow: stat[n].s!=='idle' ? '0 0 9px '+color(stat[n].s) : 'none',
+        transition:'background .3s, box-shadow .3s'},
+      boxStyle:{background:'#141D24',
+        border:'1px solid '+(stat[n].s==='blocked'?'#F0524B':stat[n].s==='warn'?'#6b5322':'#223038'),
+        borderRadius:'10px', padding:'10px 13px', minWidth:'108px', flex:'0 0 auto',
+        transition:'border-color .3s'} }));
+    // telemetry strip — latest verified reading per machine (the at-rest flow)
+    const tickBy = {};
+    msgs.forEach(m=>{ if(m.kind==='tick' && m.machine && !tickBy[m.machine]) tickBy[m.machine]=m; });
+    const sources = Object.keys(tickBy).sort().map(k=>{ const m=tickBy[k]; return {
+      name:k, ago:m.ago,
+      dotStyle:{width:'7px',height:'7px',borderRadius:'50%',background:color(m.status),flex:'0 0 auto'},
+      chipStyle:{display:'flex',alignItems:'center',gap:'7px',background:'#141D24',
+        border:'1px solid #223038',borderRadius:'8px',padding:'7px 11px',flex:'0 0 auto'} }; });
+    // feed — every non-telemetry hop, newest first
+    const feed = msgs.filter(m=>m.kind!=='tick').slice(0,12).map(m=>({
+      ago:m.ago, machine:m.machine||'\u2014', label:m.label,
+      route:m.from+' \u2192 '+m.to,
+      dotStyle:{width:'8px',height:'8px',borderRadius:'50%',background:color(m.status),flex:'0 0 auto'},
+      rowStyle:{display:'flex',alignItems:'center',gap:'11px',background:'#141D24',
+        border:'1px solid '+(m.status==='blocked'?'#F0524B66':'#223038'),
+        borderRadius:'10px',padding:'10px 13px',marginBottom:'8px'} }));
+    const blocked = msgs.find(m=>m.status==='blocked' && (now-(m.at||0))<90) || null;
+    const active = !!fl.agent_layer_active;
+    return { nodes, sources, feed, feedEmpty: !feed.length,
+      modeLabel: active ? 'AGENT LAYER ACTIVE \u2014 messages in flight'
+                        : 'TELEMETRY ONLY \u2014 agent layer on standby (no anomaly)',
+      modeStyle:{display:'inline-block',fontSize:'10.5px',fontWeight:700,letterSpacing:'.8px',
+        padding:'5px 11px',borderRadius:'14px',marginBottom:'18px',
+        color: active?'#F0B23E':'#4fd39e',
+        border:'1px solid '+(active?'#6b5322':'#2b5c46'),
+        background: active?'#251f10':'#12251d'},
+      hasBlocked: !!blocked,
+      blockedLabel: blocked ? ((blocked.machine? blocked.machine+' \u00b7 ':'')+blocked.label) : '' };
   }
 
   // ---- scenario ----
@@ -1043,6 +1179,10 @@ class Component extends DCLogic {
   sendText(raw){
     const text = (raw||'').trim();
     if(!text) return;
+    // prior turns BEFORE this question — the agent builds on the
+    // conversation instead of re-dumping the full health report every time
+    const hist = this.state.messages.slice(-8).map(m=>({
+      role:(m.role==='user'?'user':'agent'), content:String(m.text||'')}));
     const messages = this.state.messages.concat([{role:'user', text}]);
     this.setState({messages, chatInput:'', isTyping:true});
     clearTimeout(this._typing);
@@ -1051,7 +1191,8 @@ class Component extends DCLogic {
     // looking at; the design's scripted agent stays as the offline fallback.
     fetch('/api/chat', {method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({question:text, stream:false, mode:'deep',
-                            machine_id:(this.state.selectedId||this.FOCAL)})})
+                            machine_id:(this.state.selectedId||this.FOCAL),
+                            history:hist})})
       .then(r=>{ if(!r.ok) throw new Error('http '+r.status); return r.json(); })
       .then(j=>{
         const t = j && (j.answer || j.content || (j.turn && j.turn.content));
@@ -1243,11 +1384,18 @@ class Component extends DCLogic {
     const counts = {green:0,yellow:0,red:0};
     cur.forEach(m=> counts[this.statusMeta(m.health).status]++);
     const view = this.state.activeView;
-    const liveBadgeText = this.state.liveOk ? ('LIVE \u00b7 MH-PINN v2 \u00b7 epoch '+(this.state.liveEpoch||0))
-      : this.state.liveOk===false ? 'OFFLINE \u00b7 design data' : 'CONNECTING\u2026';
-    const liveBadgeStyle = "font-family:'IBM Plex Mono',monospace;font-size:10.5px;letter-spacing:.8px;padding:5px 10px;border-radius:14px;border:1px solid "
-      + (this.state.liveOk ? '#2b5c46' : '#54413a') + ';color:' + (this.state.liveOk ? '#4fd39e' : '#e0a76f')
-      + ';background:' + (this.state.liveOk ? '#12251d' : '#251b14') + ';';
+    // role switch: the MANAGER view adds the information-flow map (our
+    // information-layer value-add); operators keep the floor screens.
+    const isManager = (this.state.role||'operator')==='manager';
+    const setRoleOperator = ()=>this.setState({role:'operator',
+      activeView: this.state.activeView==='flow' ? 'floor' : this.state.activeView});
+    const setRoleManager = ()=>this.setState({role:'manager', activeView:'flow'});
+    const _roleBtn = on => "padding:6px 12px;font-size:10px;font-weight:700;letter-spacing:.8px;border:none;cursor:pointer;font-family:'IBM Plex Sans',sans-serif;"
+      + (on ? 'background:#8E2536;color:#fff;' : 'background:#182530;color:#7f96a1;');
+    const roleOpStyle = _roleBtn(!isManager), roleMgrStyle = _roleBtn(isManager);
+    const goFlow = ()=>this.setState({activeView:'flow'});
+    const flowNavStyle = this.navStyle(view==='flow');
+    const flowD = this.deriveFlow();
 
     const overviewMachines = cur.map(m=>{
       const d = this.deriveMachine(m);
@@ -1280,10 +1428,15 @@ class Component extends DCLogic {
 
     const redCount = counts.red;
     return {
-      liveBadgeText, liveBadgeStyle,
+      isManager, setRoleOperator, setRoleManager, roleOpStyle, roleMgrStyle,
+      goFlow, flowNavStyle,
+      flowNodes: flowD.nodes, flowSources: flowD.sources, flowFeed: flowD.feed,
+      flowFeedEmpty: flowD.feedEmpty, flowModeLabel: flowD.modeLabel,
+      flowModeStyle: flowD.modeStyle, flowHasBlocked: flowD.hasBlocked,
+      flowBlockedLabel: flowD.blockedLabel,
       activeView:view,
       clock:this.state.clock,
-      isFloor: view==='floor', isOverview: view==='overview', isChat: view==='chat', isLog: view==='log',
+      isFloor: view==='floor', isOverview: view==='overview', isChat: view==='chat', isLog: view==='log', isFlow: view==='flow',
       goFloor: ()=>this.setState({activeView:'floor'}),
       goOverview: ()=>this.setState({activeView:'overview'}),
       goChat: ()=>this.setState({activeView:'chat'}),

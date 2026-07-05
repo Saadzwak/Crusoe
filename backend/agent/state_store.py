@@ -346,6 +346,26 @@ class StateStore:
             for r in rows
         }
 
+    def machine_snapshot(self, machine_id: str) -> Optional[dict]:
+        """Last tick for ONE machine: risk label, epoch, at.
+
+        @integration (2026-07-05): department_snapshot() keys by department,
+        and the readings-only REPLAY presses share department "Curing" with
+        RC-07 — their CLEAR echo ticks land after RC-07's each epoch, so the
+        per-department row stopped being the hero press. Tools that need
+        "background risk of THIS machine" use this per-machine view instead
+        (uses ix_ticks_machine)."""
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT machine_id, department, epoch, risk, at FROM ticks"
+                " WHERE machine_id=? ORDER BY id DESC LIMIT 1", (machine_id,)
+            ).fetchone()
+        if row is None:
+            return None
+        return {"machine_id": row["machine_id"], "department": row["department"],
+                "epoch": row["epoch"], "risk": row["risk"] or "UNKNOWN",
+                "at": row["at"]}
+
     def log_event(self, kind: str, data: dict) -> None:
         """Flight-recorder row — everything the SSE hub publishes lands here too."""
         with self._lock:

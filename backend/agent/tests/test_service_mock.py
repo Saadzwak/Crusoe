@@ -61,10 +61,24 @@ def main() -> None:
         print("  (pipeline.py not available — storing echo ticks directly)")
 
     # ---------------------------------------------------------------- 1+2 loop
+    # @integration (2026-07-05): the runtime source now boots in a healthy
+    # heartbeat and adds 3 readings-only REPLAY presses (real FD001 units) on
+    # top of the 3 pipeline machines. This suite tests the PIPELINE arc, so:
+    # run the arc explicitly from epoch 5 (5 clean heartbeat epochs first),
+    # "hdf" kind = the calender-spike scenario this narrative encodes.
+    from backend.agent.telemetry_source import REPLAY_ONLY_IDS
+    ts.set_scenario("fault", kind="hdf", epoch=5)
     curing_notes: dict[int, str] = {}
     for epoch in range(12):
-        batch = ts.next_batch(epoch)
-        assert len(batch) == 3, f"expected 3 readings/epoch, got {len(batch)}"
+        full = ts.next_batch(epoch)
+        assert len(full) == 6, f"expected 3 pipeline + 3 replay readings, got {len(full)}"
+        batch = [s for s in full
+                 if s.payload.get("machine_id") not in REPLAY_ONLY_IDS]
+        assert len(batch) == 3, f"expected 3 pipeline readings/epoch, got {len(batch)}"
+        for s in full:
+            if s.payload.get("machine_id") in REPLAY_ONLY_IDS:
+                assert "REPLAY" in str(s.payload.get("note", "")), \
+                    "replay reading must be labeled REPLAY (honesty contract)"
         for signed in batch:
             assert verify_payload(signed.payload, signed.signature), \
                 f"HMAC failed for {signed.payload.get('machine_id')} @ epoch {epoch}"
@@ -110,16 +124,19 @@ def main() -> None:
     assert note_risk(curing_notes[7]) == RiskLabel.HIGH, "mid-run Curing should drift HIGH"
     ok("Curing arc: CLEAR early → HIGH drift mid → CRITICAL by epoch 10+")
 
-    # Calendering spike at epoch 8, healthy around it; Mixing always nominal
+    # Calendering spike 4 epochs into the hdf scenario (epoch 9 here), healthy
+    # around it; Mixing always nominal. @integration: the spike is now gated
+    # to the "hdf" scenario — a CP-07 thermal/bearing fault no longer makes
+    # the calender pop a red card mid-demo.
+    cl9 = PinnReading.model_validate(ts.next_batch(9)[1].payload)
+    assert cl9.machine_id == "CL-03" and note_risk(cl9.note) == RiskLabel.HIGH
+    assert cl9.pinn.failure_mode_probs.get("HDF", 0) > 0.5, "HDF prob missing on spike"
     cl8 = PinnReading.model_validate(ts.next_batch(8)[1].payload)
-    assert cl8.machine_id == "CL-03" and note_risk(cl8.note) == RiskLabel.HIGH
-    assert cl8.pinn.failure_mode_probs.get("HDF", 0) > 0.5, "HDF prob missing on spike"
-    cl7 = PinnReading.model_validate(ts.next_batch(7)[1].payload)
-    assert note_risk(cl7.note) == RiskLabel.CLEAR
+    assert note_risk(cl8.note) == RiskLabel.CLEAR
     for e in range(12):
         mx = PinnReading.model_validate(ts.next_batch(e)[2].payload)
         assert note_risk(mx.note) == RiskLabel.CLEAR, f"Mixing not nominal at {e}"
-    ok("Calendering HDF spike at epoch 8 only; Mixing nominal throughout")
+    ok("Calendering HDF spike at scenario epoch+4 only; Mixing nominal throughout")
 
     # ---------------------------------------------------------------- 3 knowledge
     hits = knowledge.lookup("cost of downtime curing", k=3)

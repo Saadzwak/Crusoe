@@ -287,13 +287,17 @@ async def main() -> None:
     digit_markers = [m for m in ("214", "3.2", "80") if m in content]
     c.expect(len(digit_markers) >= 2,
              f"<2 stored-data digits in answer (found {digit_markers})")
-    c.expect("Data Provenance" in content, "no Data Provenance section")
+    # @integration (2026-07-05): the operator-facing sources line is now the
+    # compact "_Checked: …_" footer (full machine trail stays on
+    # turn.provenance) — accept either wording, same guarantee.
+    c.expect(("Data Provenance" in content) or ("_Checked:" in content),
+             "no sources line (Data Provenance/_Checked)")
     tools_used = {p["tool"] for p in provenance}
     c.expect(len(tools_used) >= 2, f"<2 tools in provenance: {tools_used}")
     if not c.fails:
         COVER["operator-agent+tools"] = True
     row("S9", "operator-agent+tools",
-        ">=2 real digits, Data Provenance section, >=2 tools",
+        ">=2 real digits, sources line, >=2 tools",
         f"digits={digit_markers} tools={sorted(tools_used)}", c)
 
     # -------------------------------------------------- S10 override feedback

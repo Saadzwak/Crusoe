@@ -148,6 +148,11 @@ class ServiceState:
         self.loop_task: Optional[asyncio.Task] = None
         self.running = False
         self.epoch = 0
+        # Concurrency guards for the decoupled LLM work (see _run_loop):
+        # one in-flight pipeline run per machine, one in-flight boss summary.
+        self.pipeline_inflight: set[str] = set()
+        self.boss_inflight = False
+        self._bg_tasks: set[asyncio.Task] = set()
 
     def ensure_pipeline(self) -> None:
         if self.pipeline is None and PIPELINE_AVAILABLE and AdvisoryPipeline:
@@ -248,45 +253,80 @@ async def _run_loop(interval: float) -> None:
                             verify_payload(signed.payload, signed.signature):
                         S.store.save_reading(signed.payload,
                                              signature=signed.signature)
-                    tick: Optional[TickResult] = None
                     # Integration: hall replay presses are readings-only — they
                     # never enter the LLM pipeline (echo tick stores them CLEAR).
                     # And at REST (heartbeat) nothing goes through the LLM
                     # pipeline either: the dashboard just moves, no advisories,
                     # no idle LLM cost. The pipeline engages when the operator
                     # injects a fault (arc_mode == "fault").
+                    #
+                    # DECOUPLED (2026-07-05): live triage→draft→debate→jury can
+                    # take tens of seconds; awaiting it here FROZE the telemetry
+                    # loop right after fault injection (readings stuck at their
+                    # pre-fault values while the first advisory brewed — the
+                    # dashboard contradiction the operator reported). The LLM
+                    # pipeline now runs as a background task (one in flight per
+                    # machine); telemetry keeps its 2 s cadence no matter what.
                     _mid = str(signed.payload.get("machine_id", ""))
                     _arc = getattr(S.telemetry, "arc_mode", "fault")
                     if (S.pipeline is not None and _mid not in REPLAY_ONLY_IDS
-                            and _arc == "fault"):
-                        try:
-                            tick = await S.pipeline.process_reading(signed)
-                        except Exception as e:  # noqa: BLE001 — contract says never raise, belt+braces
-                            print(f"[main] process_reading blew up ({e!r}); echoing")
-                    if tick is None:
-                        tick = _echo_tick(signed)
-                        S.store.save_tick(tick)  # pipeline persists its own ticks
+                            and _arc == "fault"
+                            and _mid not in S.pipeline_inflight):
+                        S.pipeline_inflight.add(_mid)
+                        ptask = asyncio.create_task(
+                            S.pipeline.process_reading(signed))
+                        S._bg_tasks.add(ptask)
+
+                        def _pipeline_done(task: asyncio.Task, mid=_mid) -> None:
+                            S.pipeline_inflight.discard(mid)
+                            S._bg_tasks.discard(task)
+                            try:
+                                ptick = task.result()
+                            except Exception as e:  # noqa: BLE001 — contract: never raise
+                                print(f"[main] process_reading blew up ({e!r})")
+                                return
+                            if ptick is None:
+                                return
+                            S.hub.publish("tick", ptick.model_dump())
+                            if ptick.advisory is not None:
+                                # (no log_event here — the pipeline already
+                                # logged the "advisory" hop with machine_id)
+                                S.hub.publish("advisory", ptick.advisory.model_dump())
+                                try:  # operator app: route the alert
+                                    S.interventions.on_advisory(ptick.advisory)
+                                except Exception as e:  # noqa: BLE001
+                                    print(f"[main] on_advisory failed ({e!r}); continuing")
+
+                        ptask.add_done_callback(_pipeline_done)
+                    # The echo tick keeps the dashboard state fresh every epoch
+                    # (note-keyword risk); the pipeline's own tick + advisory
+                    # land via the callback when the LLM chain finishes.
+                    tick = _echo_tick(signed)
+                    S.store.save_tick(tick)
                     S.hub.publish("tick", tick.model_dump())
                     S.store.log_event("tick", {"machine_id": tick.machine_id,
                                                "epoch": tick.epoch,
                                                "risk": tick.triage.risk.value if tick.triage else "REJECTED"})
-                    if tick.advisory is not None:
-                        S.hub.publish("advisory", tick.advisory.model_dump())
-                        S.store.log_event("advisory", {"id": tick.advisory.id,
-                                                       "severity": tick.advisory.severity.value})
-                        try:  # operator app: route the alert (notify/intervention)
-                            S.interventions.on_advisory(tick.advisory)
-                        except Exception as e:  # noqa: BLE001 — never kill the loop
-                            print(f"[main] on_advisory failed ({e!r}); continuing")
                 except Exception as e:  # noqa: BLE001 — survive anything, the show must go on
                     print(f"[main] tick handling failed at epoch {epoch} ({e!r}); continuing")
-            if epoch % 5 == 0:
-                try:
-                    bs = await _boss_summary()
-                    S.hub.publish("boss", bs.model_dump())
-                    S.store.log_event("boss", {"text": bs.text[:200]})
-                except Exception as e:  # noqa: BLE001
-                    print(f"[main] boss summary failed: {e!r}")
+            if epoch % 5 == 0 and not S.boss_inflight:
+                # Same decoupling as the pipeline: the boss LLM call must not
+                # pause the telemetry cadence.
+                S.boss_inflight = True
+
+                async def _boss_bg() -> None:
+                    try:
+                        bs = await _boss_summary()
+                        S.hub.publish("boss", bs.model_dump())
+                        S.store.log_event("boss", {"text": bs.text[:200]})
+                    except Exception as e:  # noqa: BLE001
+                        print(f"[main] boss summary failed: {e!r}")
+                    finally:
+                        S.boss_inflight = False
+
+                btask = asyncio.create_task(_boss_bg())
+                S._bg_tasks.add(btask)
+                btask.add_done_callback(S._bg_tasks.discard)
             await asyncio.sleep(interval)
     finally:
         S.running = False
@@ -315,6 +355,9 @@ class ChatRequest(BaseModel):
     stream: bool = True
     mode: str = "deep"  # "deep" = tool-calling agent · "quick" = fast lane
     machine_id: Optional[str] = None  # scopes the quick lane's context
+    # Prior turns of this conversation [{role: user|agent, content}] so
+    # follow-up answers build on what was already said instead of re-dumping.
+    history: list[dict] = []
 
 
 class ReasonBody(BaseModel):
@@ -408,7 +451,7 @@ async def loop_stop() -> dict:
 
 
 # ---- integration: live scenario control (fault injection / reset) ----------
-def _ensure_loop(interval: float = 2.5) -> None:
+def _ensure_loop(interval: float = 2.0) -> None:
     """Start the always-on heartbeat loop if it isn't running (dashboard lives)."""
     if S.telemetry is None or S.running:
         return
@@ -430,7 +473,9 @@ async def scenario_fault(kind: str = "bearing") -> dict:
 async def scenario_reset() -> dict:
     """Back to a healthy, gently-moving heartbeat — every machine healthy again."""
     if S.telemetry is not None:
-        S.telemetry.set_scenario("heartbeat")
+        # epoch matters: the heartbeat branch rewinds the hall replays via
+        # _replay_epoch0 — without the current epoch they never rewind.
+        S.telemetry.set_scenario("heartbeat", epoch=S.epoch)
     # Clear the open advisories so the plant reads healthy after a reset.
     try:
         for a in S.store.get_advisories(status="pending", limit=100):
@@ -500,6 +545,104 @@ async def history(limit: int = 40) -> dict:
     return {"entries": out, "count": len(out), "at": now}
 
 
+@app.get("/api/flow")
+async def flow(limit: int = 100) -> dict:
+    """Inter-station information flow for the MANAGER view.
+
+    Reads the pipeline's OWN flight-recorder events (state_store.events —
+    every hop was logged by the stage that performed it, nothing is
+    fabricated here) and maps each to an edge of the information layer:
+
+      PINN → GATE (HMAC) → TRIAGE → DRAFT → DEBATE → JURY → ADVISORY
+                                      → OPERATOR (decision) → NOTIFY (Teams)
+
+    status: ok | warn (HIGH/CRITICAL content) | blocked (message stopped
+    there: HMAC rejected, jury flagged, stage error). The manager uses this
+    to see WHERE information stalls, not just that an alert exists."""
+    from .operator_flow import _ago
+
+    # kind → (from_node, to_node); unknown kinds are skipped.
+    edge = {
+        "tick": ("PINN", "GATE"),
+        "triage": ("GATE", "TRIAGE"),
+        "debate": ("DRAFT", "DEBATE"),
+        "jury": ("DEBATE", "JURY"),
+        "advisory": ("JURY", "ADVISORY"),
+        "hmac_rejected": ("PINN", "GATE"),
+        "reading_rejected": ("GATE", "TRIAGE"),
+        "pipeline_error": ("TRIAGE", "DRAFT"),
+        "intervention": ("ADVISORY", "OPERATOR"),
+        "override": ("OPERATOR", "ADVISORY"),
+        "notify": ("ADVISORY", "NOTIFY"),
+        # NB: the loop logs "boss" and pipeline.boss_summary logs
+        # "boss_summary" for the SAME hop — map only one or the feed doubles.
+        "boss": ("ADVISORY", "BOSS"),
+    }
+    ui_name = {"RC-07": "CP-07"}  # the store id vs the name on screen
+    now = time.time()
+    msgs: list[dict] = []
+    # Ticks arrive 6-per-2s and would evict the (rarer, more important) agent
+    # hops from a single recency window — so: newest ~40 ticks for the
+    # telemetry strip, but keep agent hops from a much deeper scan.
+    _tick_kept = 0
+    for ev in S.store.get_events(limit=900):
+        kind, d = ev["kind"], (ev.get("data") or {})
+        if kind not in edge:
+            continue
+        if kind == "tick":
+            if _tick_kept >= 40:
+                continue
+            _tick_kept += 1
+        frm, to = edge[kind]
+        mid = str(d.get("machine_id") or "")
+        status, label = "ok", kind
+        if kind == "tick":
+            risk = str(d.get("risk") or "CLEAR")
+            label = f"reading verified · {risk}"
+            status = ("blocked" if risk == "REJECTED"
+                      else "warn" if risk in ("HIGH", "CRITICAL") else "ok")
+        elif kind == "triage":
+            label = f"triage tier {d.get('tier', '?')} → {d.get('risk', '?')}"
+            status = "warn" if str(d.get("risk")) in ("HIGH", "CRITICAL") else "ok"
+        elif kind == "debate":
+            label = f"debate → {d.get('verdict', '?')} ({d.get('rounds', '?')} rounds)"
+            status = "warn" if d.get("verdict") == "escalated" else "ok"
+        elif kind == "jury":
+            ok = bool(d.get("passed"))
+            label = (f"jury {'passed' if ok else 'FLAGGED'} "
+                     f"({d.get('overall', '?')}/5)")
+            status = "ok" if ok else "blocked"
+        elif kind == "advisory":
+            label = f"advisory filed · {d.get('severity', '?')}"
+            status = "warn"
+        elif kind == "hmac_rejected":
+            label = "HMAC REJECTED — origin not authenticated"
+            status = "blocked"
+        elif kind == "reading_rejected":
+            label = f"reading rejected: {str(d.get('reason', ''))[:60]}"
+            status = "blocked"
+        elif kind == "pipeline_error":
+            label = "stage error — advisory path degraded"
+            status = "blocked"
+        elif kind == "intervention":
+            label = f"routed to operator · {d.get('status', '?')}"
+        elif kind == "override":
+            label = f"operator decision · {d.get('decision', '?')}"
+        elif kind == "notify":
+            label = f"paged {d.get('to', 'responsible')} · {d.get('severity', '')}"
+            status = "warn"
+        else:  # boss / boss_summary
+            label = "plant summary → boss agent"
+        msgs.append({"at": ev["at"], "ago": _ago(ev["at"], now), "kind": kind,
+                     "machine": ui_name.get(mid, mid), "from": frm, "to": to,
+                     "label": label, "status": status})
+        if len(msgs) >= limit:
+            break
+    active = any(m["kind"] not in ("tick", "boss", "boss_summary")
+                 and now - m["at"] < 45 for m in msgs)
+    return {"at": now, "agent_layer_active": active, "messages": msgs}
+
+
 @app.on_event("startup")
 async def _boot_heartbeat() -> None:
     """A real factory dashboard is never idle — start the healthy heartbeat so
@@ -542,6 +685,8 @@ async def advisory_accept(advisory_id: str, body: Optional[ReasonBody] = None) -
     if adv is None:
         raise HTTPException(404, f"unknown advisory {advisory_id}")
     S.hub.publish("override", adv.model_dump())
+    S.store.log_event("override", {"advisory_id": adv.id, "decision": "accepted",
+                                   "machine_id": adv.machine_id})
     return adv.model_dump()
 
 
@@ -551,6 +696,8 @@ async def advisory_override(advisory_id: str, body: ReasonBody) -> dict:
     if adv is None:
         raise HTTPException(404, f"unknown advisory {advisory_id}")
     S.hub.publish("override", adv.model_dump())
+    S.store.log_event("override", {"advisory_id": adv.id, "decision": "overridden",
+                                   "machine_id": adv.machine_id})
     return adv.model_dump()
 
 
@@ -577,7 +724,8 @@ async def chat(req: ChatRequest):
     # — it was giving the same answer to every question (see git log).
     if S.tool_operator is not None and req.mode != "quick":
         turn, provenance = await S.tool_operator.answer(
-            req.question, machine_hint=req.machine_id)
+            req.question, machine_hint=req.machine_id,
+            history=req.history)
         data = turn.model_dump() if hasattr(turn, "model_dump") else dict(turn)
         answer = data.get("content", "")
         # Display consistency: the store id is RC-07 but the operator's screen

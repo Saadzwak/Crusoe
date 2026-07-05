@@ -60,8 +60,14 @@ HARD RULES
 3. Stubs — get_pinn_reconstruction and get_camera_frame are not integrated: if they answer "physical subsystem not integrated", relay exactly that; never invent a reconstruction or a camera frame.
 4. You propose, never command — recommendations are options with trade-offs; the operator decides.
 5. Ground every number in a tool result, but write for a shop-floor operator: everyday time ("just now", "a few minutes ago") — NEVER say "epoch", cycle counts or internal ids — and NO bracketed citations in the text.
-6. Answer shape — FIRST line: the bottom line (is the machine OK and how urgent). THEN 2 to 4 short bullet points starting with "- ", each one fact with its number in plain words. If a value is dangerously past its limit, say so bluntly and first. Close with a one-line recommendation offered as a choice (you advise, the operator decides). Under ~110 words.
-7. Do NOT write a "Sources" or "Data Provenance" section yourself — the platform adds the list of tools you consulted automatically.
+6. ANSWER THE QUESTION THAT WAS ASKED — the shape follows the question, never a fixed template:
+   - status / "why is it flagged?" → one-line verdict, then ONLY the readings that justify it.
+   - trend / history → that signal's movement (from → to, how fast, still moving or settled). Other signals only if they explain it.
+   - "what happens if…" / risk → the concrete consequences ahead (failure mode, what breaks, roughly when) from the causal matrix and RUL — NOT a re-dump of current readings.
+   - spec / limits → the limits themselves and where the machine sits against them.
+7. CONVERSATION MEMORY — if earlier turns of this conversation are provided, do not restate numbers you already gave unless they changed (then give old → new). Never repeat the same recommendation twice: if you already advised it, refer back in a few words ("still my advice") or say what changed.
+8. Under ~110 words. Bullets ("- ") only when listing 2+ distinct facts — a simple question deserves a plain sentence. End with a recommendation ONLY if the operator asked what to do, or a limit is being crossed right now and no advisory is pending; one line, offered as a choice.
+9. Do NOT write a "Sources" or "Data Provenance" section yourself — the platform adds the list of tools you consulted automatically.
 
 SITE CONTEXT (static dossier extracts — background reference, cite tags when used):
 {site_context}"""
@@ -174,16 +180,19 @@ class ToolCallingOperator:
 
     # ---------------------------------------------------------------- public
     async def answer(self, question: str,
-                     machine_hint: Optional[str] = None
+                     machine_hint: Optional[str] = None,
+                     history: Optional[list[dict]] = None
                      ) -> tuple[OperatorTurn, list[dict]]:
         """Non-streaming variant: returns (OperatorTurn, provenance).
 
         machine_hint = the machine the operator is currently looking at, so
         "how is it doing?" resolves to that press unless the question names
-        another one.
+        another one. history = prior turns of THIS conversation
+        ([{role: user|agent, content}] oldest→newest) so follow-ups don't
+        restate what was already said.
         """
         turn_payload: Optional[dict] = None
-        async for ev in self.stream_events(question, machine_hint):
+        async for ev in self.stream_events(question, machine_hint, history):
             if ev.get("type") == "turn":
                 turn_payload = ev["turn"]
         assert turn_payload is not None  # stream always ends with a turn
@@ -193,7 +202,8 @@ class ToolCallingOperator:
         return turn, provenance
 
     async def stream_events(self, question: str,
-                            machine_hint: Optional[str] = None
+                            machine_hint: Optional[str] = None,
+                            history: Optional[list[dict]] = None
                             ) -> AsyncIterator[dict]:
         """Agent run as an event stream (see module docstring for the contract)."""
         question = (question or "").strip()
@@ -203,7 +213,7 @@ class ToolCallingOperator:
                 yield ev
             return
         try:
-            async for ev in self._stream_live(question, hint):
+            async for ev in self._stream_live(question, hint, history):
                 yield ev
             return
         except Exception as e:  # noqa: BLE001 — live path must never kill the demo
@@ -277,22 +287,27 @@ class ToolCallingOperator:
                 verify_custody_chain, analyze_drift, get_pinn_reconstruction,
                 get_camera_frame]
 
-    async def _stream_live(self, question: str, hint: str = "RC-07"
+    async def _stream_live(self, question: str, hint: str = "RC-07",
+                           history: Optional[list[dict]] = None
                            ) -> AsyncIterator[dict]:
-        from langchain_core.messages import (HumanMessage, SystemMessage,
-                                             ToolMessage)
+        from langchain_core.messages import (AIMessage, HumanMessage,
+                                             SystemMessage, ToolMessage)
         from langchain_openai import ChatOpenAI
 
+        # Chat is conversational — latency matters more than deep reasoning.
+        # model_chat (default: the fast tier) keeps tool-calling but answers in
+        # seconds; CRUSOE_MODEL_CHAT pins a different model without code change.
+        _model = settings.model_chat or settings.model_fast
         kwargs: dict[str, Any] = dict(
-            model=settings.model_reasoning,
+            model=_model,
             base_url=settings.base_url,
             api_key=settings.api_key,
             temperature=0.1,          # spec: deterministic diagnosis voice
-            max_tokens=800,
-            timeout=75,
+            max_tokens=500,
+            timeout=45,
             max_retries=1,
         )
-        extra = thinking_off_extra_body(settings.model_reasoning)
+        extra = thinking_off_extra_body(_model)
         if extra:
             kwargs["extra_body"] = extra
         llm = ChatOpenAI(**kwargs)
@@ -304,8 +319,21 @@ class ToolCallingOperator:
                    f"({_dept}). Unless they name another machine, 'it'/'this "
                    f"machine' means {hint}. Call your tools with that machine_id.")
         messages: list[Any] = [SystemMessage(content=self._system()),
-                               SystemMessage(content=framing),
-                               HumanMessage(content=question)]
+                               SystemMessage(content=framing)]
+        # Prior turns of THIS conversation (rule 7: don't restate, don't
+        # re-recommend). UI names the hero press CP-07 — translate back so the
+        # model reasons about the store id it will query.
+        for h in (history or [])[-8:]:
+            txt = str(h.get("content") or h.get("text") or "").strip()[:700]
+            if not txt:
+                continue
+            for ui, real in _UI_ALIAS.items():
+                txt = txt.replace(ui, real)
+            role = str(h.get("role", "user")).lower()
+            messages.append(AIMessage(content=txt)
+                            if role in ("agent", "assistant", "ai")
+                            else HumanMessage(content=txt))
+        messages.append(HumanMessage(content=question))
         total_calls = 0
         final_text: Optional[str] = None
 

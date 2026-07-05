@@ -61,6 +61,11 @@ class Settings:
     model_omni: str = field(
         default_factory=lambda: os.environ.get("CRUSOE_MODEL_OMNI", MODEL_OMNI_DEFAULT)
     )
+    # Operator chat lane — conversational answers must be snappy; empty means
+    # "use model_fast" (resolved at the call site so env can still pin one).
+    model_chat: str = field(
+        default_factory=lambda: os.environ.get("CRUSOE_MODEL_CHAT", "")
+    )
     hmac_secret: str = field(
         default_factory=lambda: os.environ.get("PINN_HMAC_SECRET", "")
     )

@@ -199,7 +199,8 @@ class InterventionManager:
         self.publish("notify", n)
         self.store.log_event("notify", {
             "kind": n["kind"], "machine_id": n["machine_id"],
-            "severity": n.get("severity", ""), "title": n.get("title", "")})
+            "severity": n.get("severity", ""), "title": n.get("title", ""),
+            "to": (n.get("to_operator") or {}).get("name", "")})
         if settings.teams_webhook_url:
             self._spawn(self._post_teams(n))
 

@@ -390,11 +390,20 @@ class OperatorToolbox:
         sig_specs = spec.get("signals", {})
 
         # Background epoch-triage state (kept SEPARATE from realtime — spec rule 2)
+        # @integration (2026-07-05): per-MACHINE last tick. The department
+        # snapshot stopped identifying the hero press once the readings-only
+        # REPLAY presses (same department) started ticking after it.
         risk, tick_epoch = "UNKNOWN", None
         try:
-            for _dept, v in (self.store.department_snapshot() or {}).items():
-                if v.get("machine_id") == machine_id:
-                    risk, tick_epoch = v.get("risk", "UNKNOWN"), v.get("epoch")
+            snap = None
+            if hasattr(self.store, "machine_snapshot"):
+                snap = self.store.machine_snapshot(machine_id)
+            if snap:
+                risk, tick_epoch = snap.get("risk", "UNKNOWN"), snap.get("epoch")
+            else:  # older store: fall back to the department view
+                for _dept, v in (self.store.department_snapshot() or {}).items():
+                    if v.get("machine_id") == machine_id:
+                        risk, tick_epoch = v.get("risk", "UNKNOWN"), v.get("epoch")
         except Exception:  # noqa: BLE001
             pass
         machine_advs = [a for a in self.store.get_advisories(limit=50)

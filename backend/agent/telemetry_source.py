@@ -135,7 +135,8 @@ class TelemetrySource:
         """Switch RC-07 between healthy heartbeat and a fault arc (demo control)."""
         self.arc_mode = "fault" if mode == "fault" else "heartbeat"
         if self.arc_mode == "fault":
-            self.fault_kind = "thermal" if kind == "thermal" else "bearing"
+            self.fault_kind = kind if kind in ("thermal", "bearing", "hdf") \
+                else "bearing"
             self._fault_epoch0 = int(epoch)
         else:
             # Reset to normal: rewind the hall replays to the healthy start of
@@ -192,8 +193,13 @@ class TelemetrySource:
         # oscillates gently (the dashboard stays alive at rest); FAULT runs the
         # degradation arc from the epoch the operator injected the fault.
         if self.arc_mode == "fault":
+            # Demo pacing: the operator just pressed the fault button — the
+            # targeted signal must move within a tick or two and cross its
+            # limit in ~3 ticks (6 s at the 2 s loop), not half a minute.
+            # 30 cycles/epoch still walks the SAME real degradation
+            # trajectory, just faster (~5 epochs to end of life).
             eff = max(0, epoch - self._fault_epoch0)
-            cycle = min(40 + 12 * eff, self._max_cycle - 1)
+            cycle = min(40 + 30 * eff, self._max_cycle - 1)
             heartbeat = False
         else:
             phase = epoch % 16
@@ -221,8 +227,11 @@ class TelemetrySource:
         frac = 0.0 if heartbeat else \
             max(0.0, min(1.0, (cycle - 40.0) / float(self._max_cycle - 1 - 40)))
         # thermal fault drives mould temp harder; bearing fault drives vibration.
-        f_temp = frac * (1.35 if self.fault_kind == "thermal" else 0.7)
-        f_vib = frac * (1.3 if self.fault_kind == "bearing" else 0.6)
+        # Factors sized so the TARGETED signal crosses its verified limit at
+        # eff≈2-3 (4-6 s) while the other signals follow later — the drawer
+        # tile goes red on the same machine the button named, fast.
+        f_temp = frac * (1.6 if self.fault_kind == "thermal" else 0.7)
+        f_vib = frac * (1.45 if self.fault_kind == "bearing" else 0.6)
         # C-MAPSS sensor wobble terms, each mapped to [0, 1] over unit-1 range
         w2 = _lin(s2, 641.0, 644.5, 0.0, 1.0)
         w11 = _lin(s11, 47.0, 48.5, 0.0, 1.0)
@@ -244,11 +253,11 @@ class TelemetrySource:
         }
 
         eff_note = 0 if heartbeat else (epoch - self._fault_epoch0)
-        if heartbeat or eff_note <= 1:
+        if heartbeat or eff_note <= 0:
             note = ("Nominal curing cycle on press RC-07: mould temperature, "
                     "coil power and press vibration all inside the envelope.")
             modes: dict[str, float] = {}
-        elif eff_note <= 5:
+        elif eff_note <= 2:
             driver = ("mould temperature climbing on the shoulder"
                       if self.fault_kind == "thermal"
                       else "vibration rising cycle over cycle")
@@ -289,9 +298,12 @@ class TelemetrySource:
 
     def _calendering_reading(self, epoch: int) -> PinnReading:
         n = len(self._ai4i_healthy)
-        # Integration: the HDF spike only fires during a fault scenario (a few
-        # epochs in); at rest / after reset CL-03 stays healthy.
-        eff = (epoch - self._fault_epoch0) if self.arc_mode == "fault" else -1
+        # Integration: the HDF spike is its own scenario (fault_kind "hdf"),
+        # NOT a side effect of a CP-07 fault — a thermal/bearing injection on
+        # the press must not make the calender pop a red card mid-demo (the
+        # operator pressed a CP-07 button; every alert should stay CP-07).
+        eff = (epoch - self._fault_epoch0) \
+            if (self.arc_mode == "fault" and self.fault_kind == "hdf") else -1
         if eff == 4:  # scheduled HDF spike (UDI 3237: margin 8.6 K, 1342 rpm)
             row = self._ai4i_hdf
             note = ("Heat-dissipation anomaly on calender CL-03 nip drive: "
