@@ -369,11 +369,16 @@ class TelemetrySource:
         """
         rows = self._replays[mid]
         n = len(rows)
-        # slow advance (1 cycle per 6 epochs ≈ 12 s) from the unit's healthy
-        # start; reset rewinds _replay_epoch0 so the hall goes green again on
-        # demand. At 1 cycle/epoch the shorter units were drifting back to
-        # "Watch" within minutes of a reset — demo noise, not a story.
-        cycle = min(5 + max(0, epoch - self._replay_epoch0) // 6, n - 1)
+        # HEARTBEAT: oscillate inside the unit's healthy head (like RC-07's
+        # 42..50..42 breathing) so the hall stays green FOREVER at rest — a
+        # replay must not quietly die because the server ran for an hour.
+        # FAULT: slow real advance (1 cycle / 6 epochs) for narrative depth;
+        # reset rewinds via _replay_epoch0.
+        if self.arc_mode == "fault":
+            cycle = min(5 + max(0, epoch - self._replay_epoch0) // 6, n - 1)
+        else:
+            phase = epoch % 24
+            cycle = 5 + (phase if phase < 12 else 24 - phase)   # 5..17..5
         _, s2, s4, s11, s15 = rows[cycle - 1]
         w2 = _lin(s2, 641.0, 644.5, 0.0, 1.0)
         signals = {

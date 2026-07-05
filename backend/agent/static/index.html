@@ -34,6 +34,8 @@
     @keyframes cw-fade{from{opacity:0;}to{opacity:1;}}
     @keyframes cw-danger{0%,100%{box-shadow:0 0 0 0 rgba(240,82,75,.5);}50%{box-shadow:0 0 22px 4px rgba(240,82,75,.55);}}
     @keyframes cw-dash{to{stroke-dashoffset:-28;}}
+    @keyframes cw-flicker{0%,100%{opacity:.15;}45%{opacity:1;}60%{opacity:.4;}75%{opacity:.9;}}
+    @keyframes cw-breathe{0%,100%{opacity:.45;}50%{opacity:1;}}
   </style>
 </helmet>
 <div style="display:flex;flex-direction:column;height:100vh;width:100%;background:#0F1519;color:#EAF1F4;font-family:'IBM Plex Sans',system-ui,sans-serif;overflow:hidden;">
@@ -72,6 +74,10 @@
   <div style="flex:1;display:flex;min-height:0;position:relative;">
 
     <div style="width:74px;flex:0 0 74px;background:#111820;border-right:1px solid #223038;display:flex;flex-direction:column;align-items:center;padding-top:12px;gap:4px;">
+      <button onClick="{{ goLegion }}" style="{{ legionNavStyle }}">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 17l2-9 4.5 4L12 5l2.5 7L19 8l2 9Z"/><path d="M5 21h14"/></svg>
+        <span style="font-size:9px;font-weight:600;letter-spacing:.5px;margin-top:3px;">LEGION</span>
+      </button>
       <button onClick="{{ goFloor }}" style="{{ floorNavStyle }}">
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 9l9-6 9 6v10a1 1 0 0 1-1 1h-4v-7H8v7H4a1 1 0 0 1-1-1z"/></svg>
         <span style="font-size:9px;font-weight:600;letter-spacing:.5px;margin-top:3px;">FLOOR</span>
@@ -386,6 +392,189 @@
         </div>
       </sc-if>
 
+      <sc-if value="{{ isLegion }}" hint-placeholder-val="{{ true }}">
+        <div style="position:absolute;inset:0;overflow:hidden;background:radial-gradient(1200px 600px at 50% 8%, #101a26 0%, #070b10 62%);" data-screen-label="Legion command">
+          <svg viewBox="0 0 1400 800" preserveAspectRatio="xMidYMid meet" style="position:absolute;inset:0;width:100%;height:100%;" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <filter id="cwNeon" x="-60%" y="-60%" width="220%" height="220%">
+                <feGaussianBlur stdDeviation="3.2" result="b"/>
+                <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+              </filter>
+            </defs>
+            <text x="60" y="64" style="font-family:'IBM Plex Mono',monospace;font-size:19px;font-weight:700;letter-spacing:4px;fill:#EAF1F4;">LEGIO XII AVTOMATA</text>
+            <text x="60" y="86" style="font-size:11px;letter-spacing:1.5px;fill:#7f96a1;">CURING HALL COMMAND — three ranks, two channels, one truth</text>
+            <text x="60" y="112" style="{{ legionStatusStyle }}">{{ legionStatus }}</text>
+            <text x="60" y="740" style="font-size:10.5px;fill:#5f7682;letter-spacing:.6px;">CHANNELS</text>
+            <line x1="140" y1="736" x2="176" y2="736" style="stroke:#4DA6FF;stroke-width:2.4;stroke-dasharray:9 7;"/>
+            <text x="184" y="740" style="font-size:10.5px;fill:#8aa0ab;">physical — PINN twin</text>
+            <line x1="330" y1="736" x2="366" y2="736" style="stroke:#2FE6A0;stroke-width:2.4;stroke-dasharray:9 7;"/>
+            <text x="374" y="740" style="font-size:10.5px;fill:#8aa0ab;">information — HMAC custody</text>
+            <line x1="560" y1="736" x2="596" y2="736" style="stroke:#FF4D4D;stroke-width:2.4;stroke-dasharray:9 7;"/>
+            <text x="604" y="740" style="font-size:10.5px;fill:#8aa0ab;">any failure, physical or informational</text>
+            <text x="828" y="740" style="font-size:10.5px;fill:#5f7682;">click a soldier for its full dossier</text>
+            <path d="M 105 620 C 105 540, 245 505, 245 404" style="{{ cbB0 }}"></path>
+            <path d="M 115 620 C 115 540, 275 505, 275 404" style="{{ cbG0 }}"></path>
+            <path d="M 205 620 C 205 540, 245 505, 245 404" style="{{ cbB1 }}"></path>
+            <path d="M 215 620 C 215 540, 275 505, 275 404" style="{{ cbG1 }}"></path>
+            <path d="M 305 620 C 305 540, 245 505, 245 404" style="{{ cbB2 }}"></path>
+            <path d="M 315 620 C 315 540, 275 505, 275 404" style="{{ cbG2 }}"></path>
+            <path d="M 405 620 C 405 540, 245 505, 245 404" style="{{ cbB3 }}"></path>
+            <path d="M 415 620 C 415 540, 275 505, 275 404" style="{{ cbG3 }}"></path>
+            <path d="M 545 620 C 545 540, 685 505, 685 404" style="{{ cbB4 }}"></path>
+            <path d="M 555 620 C 555 540, 715 505, 715 404" style="{{ cbG4 }}"></path>
+            <path d="M 645 620 C 645 540, 685 505, 685 404" style="{{ cbB5 }}"></path>
+            <path d="M 655 620 C 655 540, 715 505, 715 404" style="{{ cbG5 }}"></path>
+            <path d="M 745 620 C 745 540, 685 505, 685 404" style="{{ cbB6 }}"></path>
+            <path d="M 755 620 C 755 540, 715 505, 715 404" style="{{ cbG6 }}"></path>
+            <path d="M 845 620 C 845 540, 685 505, 685 404" style="{{ cbB7 }}"></path>
+            <path d="M 855 620 C 855 540, 715 505, 715 404" style="{{ cbG7 }}"></path>
+            <path d="M 985 620 C 985 540, 1125 505, 1125 404" style="{{ cbB8 }}"></path>
+            <path d="M 995 620 C 995 540, 1155 505, 1155 404" style="{{ cbG8 }}"></path>
+            <path d="M 1085 620 C 1085 540, 1125 505, 1125 404" style="{{ cbB9 }}"></path>
+            <path d="M 1095 620 C 1095 540, 1155 505, 1155 404" style="{{ cbG9 }}"></path>
+            <path d="M 1185 620 C 1185 540, 1125 505, 1125 404" style="{{ cbB10 }}"></path>
+            <path d="M 1195 620 C 1195 540, 1155 505, 1155 404" style="{{ cbG10 }}"></path>
+            <path d="M 1285 620 C 1285 540, 1125 505, 1125 404" style="{{ cbB11 }}"></path>
+            <path d="M 1295 620 C 1295 540, 1155 505, 1155 404" style="{{ cbG11 }}"></path>
+            <path d="M 254 340 C 254 262, 676 262, 676 196" style="{{ ccB0 }}"></path>
+            <path d="M 266 340 C 266 262, 724 262, 724 196" style="{{ ccG0 }}"></path>
+            <path d="M 694 340 C 694 262, 676 262, 676 196" style="{{ ccB1 }}"></path>
+            <path d="M 706 340 C 706 262, 724 262, 724 196" style="{{ ccG1 }}"></path>
+            <path d="M 1134 340 C 1134 262, 676 262, 676 196" style="{{ ccB2 }}"></path>
+            <path d="M 1146 340 C 1146 262, 724 262, 724 196" style="{{ ccG2 }}"></path>
+            <path d="M 790 116 C 850 104, 890 104, 942 112" style="stroke:#4DA6FF;stroke-width:1.6;fill:none;stroke-dasharray:3 6;opacity:.75;"></path>
+            <path d="M 790 132 C 850 146, 890 146, 942 138" style="stroke:#2FE6A0;stroke-width:1.6;fill:none;stroke-dasharray:3 6;opacity:.75;"></path>
+            <circle cx="700" cy="124" r="52" style="{{ caesarAura }}"></circle>
+            <circle cx="700" cy="124" r="40" style="fill:#0E141B;stroke:#E8C36A;stroke-width:1.6;"></circle>
+            <path d="M 682 132 C 678 120, 686 108, 698 108 C 694 116, 696 122, 702 124 C 696 128, 690 134, 692 140 C 686 140, 683 137, 682 132 Z" style="fill:none;stroke:#E8C36A;stroke-width:1.7;"></path>
+            <path d="M 718 132 C 722 120, 714 108, 702 108 C 706 116, 704 122, 698 124 C 704 128, 710 134, 708 140 C 714 140, 717 137, 718 132 Z" style="fill:none;stroke:#E8C36A;stroke-width:1.7;"></path>
+            <ellipse cx="660" cy="101" rx="4" ry="9.5" transform="rotate(-60 660 101)" style="fill:#E8C36A;opacity:.9;"></ellipse>
+            <ellipse cx="740" cy="101" rx="4" ry="9.5" transform="rotate(60 740 101)" style="fill:#E8C36A;opacity:.9;"></ellipse>
+            <ellipse cx="673" cy="87" rx="4" ry="9.5" transform="rotate(-36 673 87)" style="fill:#E8C36A;opacity:.9;"></ellipse>
+            <ellipse cx="727" cy="87" rx="4" ry="9.5" transform="rotate(36 727 87)" style="fill:#E8C36A;opacity:.9;"></ellipse>
+            <ellipse cx="690" cy="79" rx="4" ry="9.5" transform="rotate(-12 690 79)" style="fill:#E8C36A;opacity:.9;"></ellipse>
+            <ellipse cx="710" cy="79" rx="4" ry="9.5" transform="rotate(12 710 79)" style="fill:#E8C36A;opacity:.9;"></ellipse>
+            <ellipse cx="710" cy="79" rx="4" ry="9.5" transform="rotate(12 710 79)" style="fill:#E8C36A;opacity:.9;"></ellipse>
+            <ellipse cx="690" cy="79" rx="4" ry="9.5" transform="rotate(-12 690 79)" style="fill:#E8C36A;opacity:.9;"></ellipse>
+            <ellipse cx="727" cy="87" rx="4" ry="9.5" transform="rotate(36 727 87)" style="fill:#E8C36A;opacity:.9;"></ellipse>
+            <ellipse cx="673" cy="87" rx="4" ry="9.5" transform="rotate(-36 673 87)" style="fill:#E8C36A;opacity:.9;"></ellipse>
+            <ellipse cx="740" cy="101" rx="4" ry="9.5" transform="rotate(60 740 101)" style="fill:#E8C36A;opacity:.9;"></ellipse>
+            <ellipse cx="660" cy="101" rx="4" ry="9.5" transform="rotate(-60 660 101)" style="fill:#E8C36A;opacity:.9;"></ellipse>
+            <text x="700" y="196" text-anchor="middle" style="font-family:'IBM Plex Mono',monospace;font-size:15px;font-weight:700;letter-spacing:3px;fill:#E8C36A;">CAESAR</text>
+            <text x="700" y="212" text-anchor="middle" style="font-size:10px;fill:#8aa0ab;">plant brain — boss agent</text>
+            <g>
+              <circle cx="1040" cy="124" r="56" style="{{ forumRing }}"></circle>
+              <path d="M 990 132 a 18 18 0 0 1 8 -34 a 24 22 0 0 1 44 -12 a 22 20 0 0 1 38 10 a 16 16 0 0 1 -6 36 Z" style="fill:#0E141B;stroke:#31506b;stroke-width:1.5;"></path>
+              <circle cx="1002" cy="112" r="4" style="fill:#4DA6FF;animation:cw-flicker 1.7s infinite;"></circle>
+              <circle cx="1022" cy="100" r="4.5" style="fill:#2FE6A0;animation:cw-flicker 1.3s .3s infinite;"></circle>
+              <circle cx="1044" cy="112" r="4" style="fill:#4DA6FF;animation:cw-flicker 1.9s .6s infinite;"></circle>
+              <circle cx="1062" cy="102" r="3.5" style="fill:#2FE6A0;animation:cw-flicker 1.1s .15s infinite;"></circle>
+              <circle cx="1032" cy="122" r="3.5" style="fill:#2FE6A0;animation:cw-flicker 1.5s .45s infinite;"></circle>
+              <circle cx="1055" cy="124" r="3" style="fill:#4DA6FF;animation:cw-flicker 1.4s .8s infinite;"></circle>
+              <text x="1040" y="196" text-anchor="middle" style="font-family:'IBM Plex Mono',monospace;font-size:13px;font-weight:700;letter-spacing:2.5px;fill:#9fb4bf;">FORVM</text>
+              <text x="1040" y="212" text-anchor="middle" style="font-size:10px;fill:#8aa0ab;">debate council — advocate · skeptic · jury</text>
+              <text x="1040" y="228" text-anchor="middle" style="font-size:10px;fill:#5f7682;">{{ forumText }}</text>
+            </g>
+            <rect x="150" y="340" width="220" height="64" rx="12" style="{{ cBox0 }}"></rect>
+            <path d="M 246 340 L 260 326 L 274 340 Z" style="fill:#8E2536;"></path>
+            <text x="260" y="367" text-anchor="middle" style="font-family:'IBM Plex Mono',monospace;font-size:13.5px;font-weight:700;letter-spacing:2px;fill:#EAF1F4;">CENTVRIO I</text>
+            <text x="260" y="384" text-anchor="middle" style="font-size:9.5px;fill:#7f96a1;">line agent — presses CP-01 to CP-04</text>
+            <rect x="590" y="340" width="220" height="64" rx="12" style="{{ cBox1 }}"></rect>
+            <path d="M 686 340 L 700 326 L 714 340 Z" style="fill:#8E2536;"></path>
+            <text x="700" y="367" text-anchor="middle" style="font-family:'IBM Plex Mono',monospace;font-size:13.5px;font-weight:700;letter-spacing:2px;fill:#EAF1F4;">CENTVRIO II</text>
+            <text x="700" y="384" text-anchor="middle" style="font-size:9.5px;fill:#7f96a1;">line agent — presses CP-05 to CP-08</text>
+            <rect x="1030" y="340" width="220" height="64" rx="12" style="{{ cBox2 }}"></rect>
+            <path d="M 1126 340 L 1140 326 L 1154 340 Z" style="fill:#8E2536;"></path>
+            <text x="1140" y="367" text-anchor="middle" style="font-family:'IBM Plex Mono',monospace;font-size:13.5px;font-weight:700;letter-spacing:2px;fill:#EAF1F4;">CENTVRIO III</text>
+            <text x="1140" y="384" text-anchor="middle" style="font-size:9.5px;fill:#7f96a1;">line agent — presses CP-09 to CP-12</text>
+            <g onClick="{{ sClick0 }}" style="cursor:pointer;">
+              <rect x="66" y="620" width="88" height="84" rx="10" style="{{ sBox0 }}"></rect>
+              <path d="M 100 620 L 110 612 L 120 620 Z" style="fill:#31506b;"></path>
+              <text x="110" y="646" text-anchor="middle" style="font-family:'IBM Plex Mono',monospace;font-size:12.5px;font-weight:700;fill:#EAF1F4;">CP-01</text>
+              <text x="110" y="668" text-anchor="middle" style="font-family:'IBM Plex Mono',monospace;font-size:14px;font-weight:600;fill:#c4d3da;">{{ sHp0 }}</text>
+              <text x="110" y="688" text-anchor="middle" style="font-size:8.5px;letter-spacing:1px;fill:#5f7682;">{{ sSub0 }}</text>
+            </g>
+            <g onClick="{{ sClick1 }}" style="cursor:pointer;">
+              <rect x="166" y="620" width="88" height="84" rx="10" style="{{ sBox1 }}"></rect>
+              <path d="M 200 620 L 210 612 L 220 620 Z" style="fill:#31506b;"></path>
+              <text x="210" y="646" text-anchor="middle" style="font-family:'IBM Plex Mono',monospace;font-size:12.5px;font-weight:700;fill:#EAF1F4;">CP-02</text>
+              <text x="210" y="668" text-anchor="middle" style="font-family:'IBM Plex Mono',monospace;font-size:14px;font-weight:600;fill:#c4d3da;">{{ sHp1 }}</text>
+              <text x="210" y="688" text-anchor="middle" style="font-size:8.5px;letter-spacing:1px;fill:#5f7682;">{{ sSub1 }}</text>
+            </g>
+            <g onClick="{{ sClick2 }}" style="cursor:pointer;">
+              <rect x="266" y="620" width="88" height="84" rx="10" style="{{ sBox2 }}"></rect>
+              <path d="M 300 620 L 310 612 L 320 620 Z" style="fill:#31506b;"></path>
+              <text x="310" y="646" text-anchor="middle" style="font-family:'IBM Plex Mono',monospace;font-size:12.5px;font-weight:700;fill:#EAF1F4;">CP-03</text>
+              <text x="310" y="668" text-anchor="middle" style="font-family:'IBM Plex Mono',monospace;font-size:14px;font-weight:600;fill:#c4d3da;">{{ sHp2 }}</text>
+              <text x="310" y="688" text-anchor="middle" style="font-size:8.5px;letter-spacing:1px;fill:#5f7682;">{{ sSub2 }}</text>
+            </g>
+            <g onClick="{{ sClick3 }}" style="cursor:pointer;">
+              <rect x="366" y="620" width="88" height="84" rx="10" style="{{ sBox3 }}"></rect>
+              <path d="M 400 620 L 410 612 L 420 620 Z" style="fill:#31506b;"></path>
+              <text x="410" y="646" text-anchor="middle" style="font-family:'IBM Plex Mono',monospace;font-size:12.5px;font-weight:700;fill:#EAF1F4;">CP-04</text>
+              <text x="410" y="668" text-anchor="middle" style="font-family:'IBM Plex Mono',monospace;font-size:14px;font-weight:600;fill:#c4d3da;">{{ sHp3 }}</text>
+              <text x="410" y="688" text-anchor="middle" style="font-size:8.5px;letter-spacing:1px;fill:#5f7682;">{{ sSub3 }}</text>
+            </g>
+            <g onClick="{{ sClick4 }}" style="cursor:pointer;">
+              <rect x="506" y="620" width="88" height="84" rx="10" style="{{ sBox4 }}"></rect>
+              <path d="M 540 620 L 550 612 L 560 620 Z" style="fill:#31506b;"></path>
+              <text x="550" y="646" text-anchor="middle" style="font-family:'IBM Plex Mono',monospace;font-size:12.5px;font-weight:700;fill:#EAF1F4;">CP-05</text>
+              <text x="550" y="668" text-anchor="middle" style="font-family:'IBM Plex Mono',monospace;font-size:14px;font-weight:600;fill:#c4d3da;">{{ sHp4 }}</text>
+              <text x="550" y="688" text-anchor="middle" style="font-size:8.5px;letter-spacing:1px;fill:#5f7682;">{{ sSub4 }}</text>
+            </g>
+            <g onClick="{{ sClick5 }}" style="cursor:pointer;">
+              <rect x="606" y="620" width="88" height="84" rx="10" style="{{ sBox5 }}"></rect>
+              <path d="M 640 620 L 650 612 L 660 620 Z" style="fill:#31506b;"></path>
+              <text x="650" y="646" text-anchor="middle" style="font-family:'IBM Plex Mono',monospace;font-size:12.5px;font-weight:700;fill:#EAF1F4;">CP-06</text>
+              <text x="650" y="668" text-anchor="middle" style="font-family:'IBM Plex Mono',monospace;font-size:14px;font-weight:600;fill:#c4d3da;">{{ sHp5 }}</text>
+              <text x="650" y="688" text-anchor="middle" style="font-size:8.5px;letter-spacing:1px;fill:#5f7682;">{{ sSub5 }}</text>
+            </g>
+            <g onClick="{{ sClick6 }}" style="cursor:pointer;">
+              <rect x="706" y="620" width="88" height="84" rx="10" style="{{ sBox6 }}"></rect>
+              <path d="M 740 620 L 750 612 L 760 620 Z" style="fill:#31506b;"></path>
+              <text x="750" y="646" text-anchor="middle" style="font-family:'IBM Plex Mono',monospace;font-size:12.5px;font-weight:700;fill:#EAF1F4;">CP-07</text>
+              <text x="750" y="668" text-anchor="middle" style="font-family:'IBM Plex Mono',monospace;font-size:14px;font-weight:600;fill:#c4d3da;">{{ sHp6 }}</text>
+              <text x="750" y="688" text-anchor="middle" style="font-size:8.5px;letter-spacing:1px;fill:#5f7682;">{{ sSub6 }}</text>
+            </g>
+            <g onClick="{{ sClick7 }}" style="cursor:pointer;">
+              <rect x="806" y="620" width="88" height="84" rx="10" style="{{ sBox7 }}"></rect>
+              <path d="M 840 620 L 850 612 L 860 620 Z" style="fill:#31506b;"></path>
+              <text x="850" y="646" text-anchor="middle" style="font-family:'IBM Plex Mono',monospace;font-size:12.5px;font-weight:700;fill:#EAF1F4;">CP-08</text>
+              <text x="850" y="668" text-anchor="middle" style="font-family:'IBM Plex Mono',monospace;font-size:14px;font-weight:600;fill:#c4d3da;">{{ sHp7 }}</text>
+              <text x="850" y="688" text-anchor="middle" style="font-size:8.5px;letter-spacing:1px;fill:#5f7682;">{{ sSub7 }}</text>
+            </g>
+            <g onClick="{{ sClick8 }}" style="cursor:pointer;">
+              <rect x="946" y="620" width="88" height="84" rx="10" style="{{ sBox8 }}"></rect>
+              <path d="M 980 620 L 990 612 L 1000 620 Z" style="fill:#31506b;"></path>
+              <text x="990" y="646" text-anchor="middle" style="font-family:'IBM Plex Mono',monospace;font-size:12.5px;font-weight:700;fill:#EAF1F4;">CP-09</text>
+              <text x="990" y="668" text-anchor="middle" style="font-family:'IBM Plex Mono',monospace;font-size:14px;font-weight:600;fill:#c4d3da;">{{ sHp8 }}</text>
+              <text x="990" y="688" text-anchor="middle" style="font-size:8.5px;letter-spacing:1px;fill:#5f7682;">{{ sSub8 }}</text>
+            </g>
+            <g onClick="{{ sClick9 }}" style="cursor:pointer;">
+              <rect x="1046" y="620" width="88" height="84" rx="10" style="{{ sBox9 }}"></rect>
+              <path d="M 1080 620 L 1090 612 L 1100 620 Z" style="fill:#31506b;"></path>
+              <text x="1090" y="646" text-anchor="middle" style="font-family:'IBM Plex Mono',monospace;font-size:12.5px;font-weight:700;fill:#EAF1F4;">CP-10</text>
+              <text x="1090" y="668" text-anchor="middle" style="font-family:'IBM Plex Mono',monospace;font-size:14px;font-weight:600;fill:#c4d3da;">{{ sHp9 }}</text>
+              <text x="1090" y="688" text-anchor="middle" style="font-size:8.5px;letter-spacing:1px;fill:#5f7682;">{{ sSub9 }}</text>
+            </g>
+            <g onClick="{{ sClick10 }}" style="cursor:pointer;">
+              <rect x="1146" y="620" width="88" height="84" rx="10" style="{{ sBox10 }}"></rect>
+              <path d="M 1180 620 L 1190 612 L 1200 620 Z" style="fill:#31506b;"></path>
+              <text x="1190" y="646" text-anchor="middle" style="font-family:'IBM Plex Mono',monospace;font-size:12.5px;font-weight:700;fill:#EAF1F4;">CP-11</text>
+              <text x="1190" y="668" text-anchor="middle" style="font-family:'IBM Plex Mono',monospace;font-size:14px;font-weight:600;fill:#c4d3da;">{{ sHp10 }}</text>
+              <text x="1190" y="688" text-anchor="middle" style="font-size:8.5px;letter-spacing:1px;fill:#5f7682;">{{ sSub10 }}</text>
+            </g>
+            <g onClick="{{ sClick11 }}" style="cursor:pointer;">
+              <rect x="1246" y="620" width="88" height="84" rx="10" style="{{ sBox11 }}"></rect>
+              <path d="M 1280 620 L 1290 612 L 1300 620 Z" style="fill:#31506b;"></path>
+              <text x="1290" y="646" text-anchor="middle" style="font-family:'IBM Plex Mono',monospace;font-size:12.5px;font-weight:700;fill:#EAF1F4;">CP-12</text>
+              <text x="1290" y="668" text-anchor="middle" style="font-family:'IBM Plex Mono',monospace;font-size:14px;font-weight:600;fill:#c4d3da;">{{ sHp11 }}</text>
+              <text x="1290" y="688" text-anchor="middle" style="font-size:8.5px;letter-spacing:1px;fill:#5f7682;">{{ sSub11 }}</text>
+            </g>
+          </svg>
+        </div>
+      </sc-if>
+
     </div>
 
     <sc-if value="{{ showDrawer }}" hint-placeholder-val="{{ false }}">
@@ -520,7 +709,7 @@ class Component extends DCLogic {
     this.LIVE_ID = 'RC-07';   // real backend machine feeding the focal press
     this.baseMachines = this.makeMachines();
     this.state = {
-      activeView: 'floor',
+      activeView: 'legion',
       liveOk: null, live: null, liveMachines: [], liveEpoch: 0, history: [],
       role: 'operator', flow: null, chatByRole: {},
       faultMode: 'none',
@@ -724,6 +913,74 @@ class Component extends DCLogic {
   // store (each hop was logged by the pipeline stage that performed it).
   // Nothing here is simulated: at rest you see telemetry+boss only, because
   // the agent layer genuinely stands by until a fault engages it.
+  // ==== LEGION (landing view) ================================================
+  // Three ranks: 12 soldiers (presses) -> 3 centurions (line agents) ->
+  // CAESAR (boss) + FORVM (debate council). Two neon channels per link:
+  // BLUE = physical truth from the PINN twin; GREEN = information custody
+  // (HMAC). Either channel failing turns its cable RED. Same live sources
+  // as every other view (currentMachines + /api/flow) — nothing simulated.
+  deriveLegion(){
+    const cur = this.currentMachines();
+    const byId = {}; cur.forEach(m=>{ byId[m.id]=m; });
+    const fl = this.state.flow || {}; const msgs = fl.messages || [];
+    const now = fl.at || (Date.now()/1000);
+    const recent = (kinds, mach, win)=> msgs.some(mm=> kinds.indexOf(mm.kind)>=0
+      && (!mach || mm.machine===mach) && (now-(mm.at||0))<=win);
+    const BLUE='#4DA6FF', GREEN='#2FE6A0', RED='#FF4D4D', AMBER='#F0B23E', GOLD='#E8C36A';
+    const cable = (col, speed, hot)=>({stroke:col, strokeWidth: hot?3:2.4, fill:'none',
+      strokeDasharray:'9 7', animation:'cw-dash '+speed+'s linear infinite',
+      opacity: hot?1:.9, filter:'url(#cwNeon)'});
+    const idleCable = col=>({stroke:col, strokeWidth:1.5, fill:'none',
+      strokeDasharray:'9 7', animation:'cw-dash 3.4s linear infinite', opacity:.45});
+    const vars = {};
+    const worst=[0,0,0];
+    for(let i=0;i<12;i++){
+      const id = 'CP-' + ('0'+(i+1)).slice(-2);
+      const m = byId[id];
+      const st = m ? this.uiStatus(m) : {status:'green', color:'#35C08A'};
+      const lvl = st.status==='red'?2: st.status==='yellow'?1:0;
+      const sq = Math.floor(i/4); if(lvl>worst[sq]) worst[sq]=lvl;
+      const live = !!(m && m.isLive);
+      vars['cbB'+i] = lvl===2? cable(RED,.55,true) : lvl===1? cable(AMBER,1.1,true)
+                     : live? cable(BLUE,1.8,false) : idleCable('#28527a');
+      const lost = recent(['hmac_rejected','reading_rejected'], id, 60);
+      vars['cbG'+i] = lost? cable(RED,.55,true)
+                     : live? cable(GREEN,1.3,false) : idleCable('#1f5c46');
+      vars['sBox'+i] = {fill:'#0E141B', stroke: st.color, strokeWidth: lvl?2.4:1.2};
+      vars['sHp'+i] = m? (Math.round((m.health||0)*100)+'%') : '';
+      vars['sSub'+i] = live? 'LIVE - MH-PINN' : (m && String(m.type||'').indexOf('REPLAY')>=0 ? 'REPLAY - FD001' : 'STANDBY');
+      vars['sClick'+i] = ()=>this.setState({selectedId:id, drawerOpen:true});
+    }
+    const act = !!fl.agent_layer_active;
+    for(let s=0;s<3;s++){
+      const lvl = worst[s];
+      vars['ccB'+s] = lvl===2? cable(RED,.55,true) : lvl===1? cable(AMBER,1.1,true) : cable(BLUE,2.3,false);
+      const err = recent(['pipeline_error'], null, 90);
+      vars['ccG'+s] = err? cable(RED,.8,true) : act? cable(GREEN,.9,true) : cable(GREEN,2.6,false);
+      vars['cBox'+s] = {fill:'#10171F', stroke: lvl===2?RED: lvl===1?AMBER:'#31506b',
+        strokeWidth: lvl?2.4:1.4};
+    }
+    const anyRed = worst.indexOf(2)>=0, anyAmb = worst.indexOf(1)>=0;
+    vars['caesarAura'] = {fill:'none', stroke: anyRed?RED:GOLD, strokeWidth:2,
+      opacity:.9, filter:'url(#cwNeon)',
+      animation:'cw-breathe '+(anyRed?1.1:3.4)+'s ease-in-out infinite'};
+    vars['legionStatus'] = anyRed? 'ALERT - Caesar is weighing an intervention'
+      : anyAmb? 'WATCH - a centurion reports a trend'
+      : 'LEGION NOMINAL - all couriers reporting';
+    vars['legionStatusStyle'] = {fontFamily:"'IBM Plex Mono',monospace", fontSize:'12px',
+      fontWeight:700, letterSpacing:'1.5px', fill: anyRed?RED: anyAmb?AMBER:'#4fd39e'};
+    const deb = msgs.find(mm=>mm.kind==='debate');
+    const jur = msgs.find(mm=>mm.kind==='jury');
+    vars['forumText'] = jur ? ('last ruling: ' + (deb? deb.label.replace('debate','').replace('\u2192','').trim()+' - ':'') + jur.label)
+      : 'council idle - no case in session';
+    const busy = recent(['debate','jury','advisory'], null, 30);
+    vars['forumRing'] = {fill:'none', stroke: busy?GREEN:'#31506b',
+      strokeWidth: busy?2.4:1.1, opacity: busy?1:.5,
+      filter: busy?'url(#cwNeon)':'none',
+      animation: busy?'cw-breathe 1.1s ease-in-out infinite':'none'};
+    return {vars};
+  }
+
   deriveFlow(){
     // Topology map (manager view): BOSS on top, agent stations in the middle,
     // machines at the bottom. Every edge/node style below is derived from the
@@ -1495,6 +1752,9 @@ class Component extends DCLogic {
     const goFlow = ()=>this.setState({activeView:'flow'});
     const flowNavStyle = this.navStyle(view==='flow');
     const flowD = this.deriveFlow();
+    const legD = this.deriveLegion();
+    const goLegion = ()=>this.setState({activeView:'legion'});
+    const legionNavStyle = this.navStyle(view==='legion');
 
     const overviewMachines = cur.map(m=>{
       const d = this.deriveMachine(m);
@@ -1528,6 +1788,7 @@ class Component extends DCLogic {
     const redCount = counts.red;
     return {
       ...flowD.vars,
+      ...legD.vars, goLegion, legionNavStyle,
       isManager, setRoleOperator, setRoleManager, roleOpStyle, roleMgrStyle,
       goFlow, flowNavStyle,
       flowFeed: flowD.feed,
@@ -1536,7 +1797,7 @@ class Component extends DCLogic {
       flowBlockedLabel: flowD.blockedLabel,
       activeView:view,
       clock:this.state.clock,
-      isFloor: view==='floor', isOverview: view==='overview', isChat: view==='chat', isLog: view==='log', isFlow: view==='flow',
+      isFloor: view==='floor', isOverview: view==='overview', isChat: view==='chat', isLog: view==='log', isFlow: view==='flow', isLegion: view==='legion',
       goFloor: ()=>this.setState({activeView:'floor'}),
       goOverview: ()=>this.setState({activeView:'overview'}),
       goChat: ()=>this.setState({activeView:'chat'}),
