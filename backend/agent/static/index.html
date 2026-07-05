@@ -683,6 +683,16 @@
             </sc-if>
           </div>
 
+          <button onClick="{{ sel.inspectFn }}" style="width:100%;margin-top:14px;background:linear-gradient(135deg,#12303a,#182530);border:1px solid #2e5560;border-radius:10px;padding:12px;display:flex;align-items:center;justify-content:center;gap:9px;color:#7fd4e2;font-family:'IBM Plex Sans',sans-serif;font-size:13px;font-weight:600;cursor:pointer;" style-hover="border-color:#3fc9d4;color:#b8ecf4;">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 2 2 7l10 5 10-5-10-5z"/><path d="M2 12l10 5 10-5"/><path d="M2 17l10 5 10-5"/></svg>
+            Layer-by-layer X-ray · {{ sel.name }}
+          </button>
+
+          <button onClick="{{ sel.passportFn }}" style="width:100%;margin-top:10px;background:#182530;border:1px solid #2b3d47;border-radius:10px;padding:12px;display:flex;align-items:center;justify-content:center;gap:9px;color:#b6c8d1;font-family:'IBM Plex Sans',sans-serif;font-size:13px;font-weight:600;cursor:pointer;" style-hover="border-color:#8aa0ab;color:#eaf1f4;">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="M15 8h4M15 12h4M5 16h14"/></svg>
+            Digital passport · physical layer
+          </button>
+
           <button onClick="{{ askAgentFn }}" style="width:100%;margin-top:14px;background:#182530;border:1px solid #2b3d47;border-radius:10px;padding:12px;display:flex;align-items:center;justify-content:center;gap:9px;color:#b6c8d1;font-family:'IBM Plex Sans',sans-serif;font-size:13px;font-weight:500;cursor:pointer;" style-hover="background:#2C1A20;color:#eaf1f4;">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 15a2 2 0 0 1-2 2H8l-5 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
             Ask the agent about {{ sel.name }}
@@ -786,6 +796,10 @@ class Component extends DCLogic {
     this._clock = setInterval(()=> this.setState({clock:this.fmtClock()}), 1000);
     this.startLive();
     this.syncThree();
+    // rolling per-machine time series feeding the passport residual graph
+    this._series = {};
+    this._seriesTimer = setInterval(()=>this.sampleSeries(), 1500);
+    this.sampleSeries();
   }
   componentDidUpdate(){
     this.syncThree();
@@ -796,6 +810,9 @@ class Component extends DCLogic {
     clearInterval(this._clock);
     this.stopLive();
     if(this._ramp) clearInterval(this._ramp);
+    if(this._seriesTimer) clearInterval(this._seriesTimer);
+    this.closeInspector();
+    this.closePassport();
     this.disposeThree();
     this.disposeLegion3D();
   }
@@ -1476,6 +1493,20 @@ class Component extends DCLogic {
   }
 
   failureModesFor(m){
+    // live presses report REAL MH-PINN failure-mode probabilities — always
+    // prefer those; the scripted list below is the offline design stand-in.
+    // The PINN names the failure MODE (= subsystem), never a specific part.
+    const pv = this.pinnFor(m);
+    if(pv && pv.failure_mode_probs && !pv._synth){
+      // thermal is deliberately NOT tied to a subsystem: the twin sees a
+      // whole-machine thermal excursion, it cannot resolve the heat source.
+      // Bearing wear IS attributable — the vibration signature is the drive's.
+      const nice = { thermal_runaway:'Thermal runaway — location unresolved',
+                     bearing_wearout:'Bearing wear-out — drive subsystem' };
+      return Object.entries(pv.failure_mode_probs)
+        .map(([k,v])=>({name:nice[k]||k, p:v}))
+        .sort((a,b)=>b.p-a.p);
+    }
     const f = this.state.faultMode;
     const mk = (name,p)=>({name, p});
     if(m.id===this.FOCAL && f==='thermal' && m.health<0.6) return [mk('Zone-3 heater element drift',0.63),mk('Thermocouple fault',0.19),mk('Bladder wear',0.09),mk('Bearing wear',0.05)];
@@ -1603,6 +1634,14 @@ class Component extends DCLogic {
       raycaster.setFromCamera(mouse, camera);
       const hits = raycaster.intersectObjects(this._pickables, true);
       if(hits.length){ let o = hits[0].object; while(o && !(o.userData && o.userData.id)) o = o.parent; if(o) this.selectMachine(o.userData.id); }
+    });
+    dom.addEventListener('dblclick', e=>{
+      const rect = dom.getBoundingClientRect();
+      mouse.x = ((e.clientX-rect.left)/rect.width)*2-1;
+      mouse.y = -((e.clientY-rect.top)/rect.height)*2+1;
+      raycaster.setFromCamera(mouse, camera);
+      const hits = raycaster.intersectObjects(this._pickables, true);
+      if(hits.length){ let o = hits[0].object; while(o && !(o.userData && o.userData.id)) o = o.parent; if(o) this.openInspector(o.userData.id); }
     });
     dom.addEventListener('pointermove', e=>{
       const rect = dom.getBoundingClientRect();
@@ -1813,6 +1852,815 @@ class Component extends DCLogic {
     const t = new T.CanvasTexture(c);
     t.wrapS = t.wrapT = T.RepeatWrapping; t.repeat.set(2,2);
     return t;
+  }
+
+  // ==== LAYER X-RAY INSPECTOR ==============================================
+  // Full-screen layer-by-layer deep dive on one press: the MH-PINN twin on
+  // the left (wireframe belief-state), the physical component model on the
+  // right, synchronized exploded views. The faulty component glows red with
+  // sparks; the side panel carries per-layer live telemetry, what the twin
+  // sees, the agent's suggestions, and the self-optimizing corrective loop.
+  inspLayers(){ return [
+    {key:'shell',   name:'Steam dome & insulation', sub:'Autoclave dome · insulation · clamp bands', peelY:5.4},
+    {key:'heating', name:'Heating system',          sub:'Zone 1–3 heater rings · platen · power feed', peelY:3.2},
+    {key:'bladder', name:'Bladder & mould cavity',  sub:'Curing bladder · 8 mould segments · green tire', peelY:1.8},
+    {key:'drive',   name:'Hydraulics & drive',      sub:'Main ram · pump · bearing housing · shaft', peelY:1.0},
+    {key:'sensors', name:'Sensor & control network',sub:'TC 1–3 · pressure · accelerometer · HMAC unit', peelY:0}
+  ]; }
+  inspSignalsFor(key){
+    return { shell:['mould_temp_C'], heating:['mould_temp_C','coil_power_kW'],
+      bladder:['pressure_bar'], drive:['vibration_rms_mm_s','pressure_bar'],
+      sensors:['mould_temp_C','pressure_bar','vibration_rms_mm_s','coil_power_kW'] }[key]||[];
+  }
+  inspMachine(){
+    const I=this._insp; if(!I) return null;
+    return this.currentMachines().find(x=>x.id===I.id) || null;
+  }
+  pinnFor(m){
+    if(m && m.id===this.FOCAL && this.state.live && this.state.live.last_reading && this.state.live.last_reading.pinn)
+      return this.state.live.last_reading.pinn;
+    return { health_index:m?m.health:1, residual:+(((1-(m?m.health:1))*0.25)).toFixed(3),
+             rul_cycles:m?m.rul:0, failure_mode_probs:null, _synth:true };
+  }
+  faultInfoFor(m){
+    const meta = this.uiStatus(m);
+    // Prefer the REAL PINN failure-mode probabilities when this press is
+    // live — the scripted design list is only the offline stand-in. The PINN
+    // classifies the failure MODE (thermal_runaway / bearing_wearout…): that
+    // names a SUBSYSTEM, never a specific part. Say so, don't oversell.
+    const p = this.pinnFor(m);
+    const modes = this.failureModesFor(m);   // real PINN probs when live
+    const top = modes[0]||{name:'',p:0};
+    // evidence trail: which verified limits are actually breached right now
+    const spec = m.spec || this.curingSpec();
+    const sigNames = {mould_temp_C:'Mould temp', pressure_bar:'Pressure', vibration_rms_mm_s:'Vibration', coil_power_kW:'Coil power'};
+    const why = [];
+    Object.keys(sigNames).forEach(k=>{
+      const e = this.evalLimit(k, m.readings[k], spec);
+      if(e.color!=='#35C08A' && typeof m.readings[k]==='number')
+        why.push(sigNames[k]+' '+m.readings[k].toFixed(1)+' — '+e.state);
+    });
+    if(p.failure_mode_probs && !p._synth)
+      why.push('MH-PINN mode probabilities: '+Object.entries(p.failure_mode_probs).map(([k,v])=>k+'='+v).join(', '));
+    if(typeof p.residual==='number' && !p._synth)
+      why.push('Reconstruction residual '+p.residual.toFixed(3)+' (physics vs sensors)');
+    let layer=null, comp=null, plan=null, sug=[], scope=null;
+    // localise only when a mode carries real probability mass — a pending
+    // advisory alone must not paint a healthy component red
+    if(meta.status!=='green' && top.p>=0.15){
+      const n=(top.name||'').toLowerCase();
+      if(/heater|thermo|thermal/.test(n)){
+        // machine-wide: the twin detects a thermal MODE, it cannot say WHERE
+        // the heat source is — no layer gets blamed, no component glows
+        layer=null; scope='machine'; comp='Thermal excursion — machine-wide';
+        sug=['Derate heater duty −12 % to arrest the drift',
+             'Hold the cure window from the remaining margin',
+             'Cross-check the TC against the twin — divergence rules out a sensor glitch',
+             'Send maintenance with an IR camera to find the hot spot — the twin cannot resolve location'];
+        plan=['Derate heater duty −12 %','Rebalance the duty cycle to hold the cure window',
+              'Apply corrective setpoints to the press controller',
+              'Verify recovery over the next cures','Log plan + operator sign-off to flight recorder'];
+      } else if(/bearing|lubric|shaft|misalign/.test(n)){
+        layer='drive'; scope='subsystem'; comp='Drive & bearing subsystem';
+        sug=['Drop the cycle rate to 30 min to relieve the load',
+             'Flush and re-grease the bearing housing lube line',
+             'Stage the bearing swap kit at the press',
+             'Trend vibration each cure against the ISO 10816 zones'];
+        plan=['Drop cycle rate to 30 min (load relief)','Flush & re-grease bearing housing line',
+              'Apply corrective setpoints to the press controller',
+              'Verify recovery over the next cures','Log plan + operator sign-off to flight recorder'];
+      } else if(/bladder|seal/.test(n)){
+        layer='bladder'; scope='subsystem'; comp='Bladder subsystem';
+        sug=['Reduce shaping pressure toward the 16 bar floor',
+             'Inspect the bladder at the next mould-open',
+             'Stage a replacement bladder at the press'];
+        plan=['Reduce shaping pressure setpoint','Flag bladder for visual at next mould-open',
+              'Apply corrective setpoints to the press controller',
+              'Verify recovery over the next cures','Log plan + operator sign-off to flight recorder'];
+      }
+    }
+    return { status:meta.status, layer, scope, comp, modes, sug, plan, why,
+             synth: !!p._synth };
+  }
+
+  openInspector(id){
+    if(this._insp) this.closeInspector();
+    const m = this.currentMachines().find(x=>x.id===id);
+    if(!m || !window.THREE) return;
+    const T = window.THREE;
+    const root = document.createElement('div');
+    root.id='cw-inspector';
+    root.style.cssText='position:fixed;inset:0;z-index:70;background:rgba(9,13,16,.97);display:flex;flex-direction:column;font-family:\'IBM Plex Sans\',system-ui,sans-serif;color:#EAF1F4;animation:cw-fade .2s ease;';
+    root.innerHTML =
+      '<div style="height:56px;flex:0 0 56px;display:flex;align-items:center;justify-content:space-between;padding:0 18px;background:#10171d;border-bottom:1px solid #223038;">'
+      +'<div style="display:flex;align-items:center;gap:12px;">'
+      +'<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#3fc9d4" stroke-width="1.8"><path d="M12 2 2 7l10 5 10-5-10-5z"/><path d="M2 12l10 5 10-5"/><path d="M2 17l10 5 10-5"/></svg>'
+      +'<div><div style="font-size:14px;font-weight:700;letter-spacing:1px;">'+id+' · LAYER-BY-LAYER X-RAY</div>'
+      +'<div style="font-size:10.5px;color:#7f96a1;">MH-PINN reconstruction ↔ physical twin · live</div></div>'
+      +'<span id="cw-insp-badge" style="margin-left:10px;"></span></div>'
+      +'<button id="cw-insp-close" style="width:32px;height:32px;background:#1c2a32;border:1px solid #2b3d47;border-radius:8px;cursor:pointer;color:#9fb4bf;display:flex;align-items:center;justify-content:center;">'
+      +'<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div>'
+      +'<div style="flex:1;display:flex;min-height:0;">'
+      +'<div id="cw-insp-steps" style="width:225px;flex:0 0 225px;background:#0e141a;border-right:1px solid #1d2a33;padding:14px 10px;display:flex;flex-direction:column;gap:6px;overflow-y:auto;"></div>'
+      +'<div style="flex:1;position:relative;min-width:0;">'
+      +'<div id="cw-insp-mount" style="position:absolute;inset:0;overflow:hidden;"></div>'
+      +'<div style="position:absolute;top:14px;left:18px;pointer-events:none;"><div style="font-size:10px;letter-spacing:1.4px;color:#3fc9d4;font-weight:700;">MH-PINN RECONSTRUCTION</div><div style="font-size:10.5px;color:#68808c;">what the model believes · residual field</div></div>'
+      +'<div style="position:absolute;top:14px;right:18px;text-align:right;pointer-events:none;"><div style="font-size:10px;letter-spacing:1.4px;color:#c4d3da;font-weight:700;">PHYSICAL TWIN</div><div style="font-size:10.5px;color:#68808c;">component model · fault localisation</div></div>'
+      +'<div style="position:absolute;top:48px;bottom:14px;left:50%;width:1px;background:linear-gradient(#22303800,#2e556044 30%,#3fc9d466 50%,#2e556044 70%,#22303800);pointer-events:none;"></div>'
+      +'<div style="position:absolute;bottom:12px;left:0;right:0;text-align:center;font-size:10.5px;color:#5f7682;pointer-events:none;">Drag to orbit · scroll to zoom · pick a layer to peel the press open</div>'
+      +'</div>'
+      +'<div id="cw-insp-panel" style="width:355px;flex:0 0 355px;background:#12191f;border-left:1px solid #1d2a33;overflow-y:auto;padding:16px 16px 22px;"></div>'
+      +'</div>';
+    document.body.appendChild(root);
+
+    const I = this._insp = { id, layerKey:'shell', root, fix:null, glow:0, t0:performance.now() };
+    I.fault = this.faultInfoFor(m);
+    root.querySelector('#cw-insp-close').onclick = ()=>this.closeInspector();
+    this._inspKey = (e)=>{ if(e.key==='Escape') this.closeInspector(); };
+    window.addEventListener('keydown', this._inspKey);
+
+    // ---- scene
+    const mount = root.querySelector('#cw-insp-mount');
+    const w = mount.clientWidth||900, h = mount.clientHeight||600;
+    const scene = new T.Scene();
+    scene.fog = new T.Fog(0x0a0f13, 34, 90);
+    const camera = new T.PerspectiveCamera(38, w/h, 0.1, 300);
+    camera.position.set(0, 9.5, 24);
+    const renderer = new T.WebGLRenderer({antialias:true, alpha:true});
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio,2));
+    renderer.setSize(w,h);
+    renderer.outputEncoding = T.sRGBEncoding;
+    renderer.toneMapping = T.ACESFilmicToneMapping;
+    mount.appendChild(renderer.domElement);
+    scene.add(new T.HemisphereLight(0x9fb3c2, 0x11181d, 0.85));
+    const key = new T.DirectionalLight(0xfff0da, 1.1); key.position.set(18,24,16); scene.add(key);
+    const fill = new T.DirectionalLight(0x7f9dbd, 0.35); fill.position.set(-16,10,-12); scene.add(fill);
+    // ground: subtle grid disc
+    const grid = new T.GridHelper(56, 28, 0x24414c, 0x16232b);
+    grid.position.y = 0.01; scene.add(grid);
+    const gplane = new T.Mesh(new T.CircleGeometry(30,48), new T.MeshBasicMaterial({color:0x0c1216, transparent:true, opacity:0.85}));
+    gplane.rotation.x = -Math.PI/2; scene.add(gplane);
+
+    const real = this.buildXPress('real'); real.group.position.set( 6.8, 0, 0); scene.add(real.group);
+    const pinn = this.buildXPress('pinn'); pinn.group.position.set(-6.8, 0, 0); scene.add(pinn.group);
+    I.models = {real, pinn};
+
+    // fault glow lights + sparks (anchored per model when a fault is localised)
+    I.fx = {};
+    ['pinn','real'].forEach(side=>{
+      const lt = new T.PointLight(0xF0524B, 0, 9, 2);
+      I.models[side].group.add(lt);
+      I.fx[side] = { light:lt, sparks:this.mkSparks(I.models[side].group) };
+    });
+    // healthy idle: slow cyan scan ring sweeping the PINN twin
+    const scanMat = new T.MeshBasicMaterial({color:0x3fc9d4, transparent:true, opacity:0, side:T.DoubleSide});
+    const scan = new T.Mesh(new T.TorusGeometry(3.1, 0.025, 8, 64), scanMat);
+    scan.rotation.x = Math.PI/2; pinn.group.add(scan);
+    I.scan = scan;
+
+    const controls = new T.OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true; controls.dampingFactor = 0.08;
+    controls.minDistance = 10; controls.maxDistance = 55;
+    controls.maxPolarAngle = Math.PI/1.9;
+    controls.target.set(0, 4.2, 0);
+    I.three = {renderer, scene, camera, controls};
+
+    I.onResize = ()=>{
+      const W=mount.clientWidth, H=mount.clientHeight;
+      if(!W||!H) return;
+      camera.aspect=W/H; camera.updateProjectionMatrix(); renderer.setSize(W,H);
+    };
+    window.addEventListener('resize', I.onResize);
+
+    this.buildInspSteps();
+    this.setInspLayer('shell');
+    I.timer = setInterval(()=>{
+      const mm = this.inspMachine(); if(!mm) return;
+      I.fault = this.faultInfoFor(mm);
+      this.buildInspSteps();
+      this.renderInspPanel();
+      const badge = root.querySelector('#cw-insp-badge');
+      if(badge){
+        const meta=this.uiStatus(mm);
+        badge.innerHTML='<span style="font-size:10px;font-weight:700;letter-spacing:.5px;padding:3px 9px;border-radius:20px;color:'+meta.color+';background:'+meta.color+'22;border:1px solid '+meta.color+'55;">'+meta.label.toUpperCase()+'</span>';
+      }
+    }, 1000);
+
+    const clock = new T.Clock();
+    const animate = ()=>{
+      if(!this._insp) return;
+      I.raf = requestAnimationFrame(animate);
+      const dt = Math.min(clock.getDelta(), 0.05);
+      const t = clock.getElapsedTime();
+      this.stepInspExplode();
+      this.stepInspGlow(t, dt);
+      controls.update();
+      renderer.render(scene, camera);
+    };
+    animate();
+  }
+
+  closeInspector(){
+    const I = this._insp; if(!I) return;
+    this._insp = null;
+    if(I.raf) cancelAnimationFrame(I.raf);
+    if(I.timer) clearInterval(I.timer);
+    if(I.onResize) window.removeEventListener('resize', I.onResize);
+    if(this._inspKey){ window.removeEventListener('keydown', this._inspKey); this._inspKey=null; }
+    if(I.three && I.three.renderer) I.three.renderer.dispose();
+    if(I.root && I.root.parentNode) I.root.parentNode.removeChild(I.root);
+  }
+
+  // Geometry recipe shared by both twins; mode picks the material language.
+  buildXPress(mode){
+    const T = window.THREE, self = this;
+    const group = new T.Group();
+    const layers = {}, hot = {};
+    const layerTint = {shell:0x3fc9d4, heating:0x3fc9d4, bladder:0x3fc9d4, drive:0x3fc9d4, sensors:0x64e0c8, frame:0x2a4a55};
+    const realKits = {};
+    const matCache = {};
+    const matFor = (layer, name)=>{
+      const ck = layer+'|'+name;
+      if(matCache[ck]) return matCache[ck];
+      let mm;
+      if(mode==='pinn'){
+        mm = new T.MeshBasicMaterial({color:layerTint[layer]||0x3fc9d4, wireframe:true, transparent:true, opacity:0.55});
+      } else {
+        if(!realKits[layer]){
+          const K = this.mats();
+          K.heater = new T.MeshStandardMaterial({color:0x6e4526, emissive:0xff6a2a, emissiveIntensity:0.35, roughness:0.5, metalness:0.3});
+          K.tire = new T.MeshStandardMaterial({color:0x18231e, roughness:0.75, metalness:0.05});
+          K.sensor = new T.MeshStandardMaterial({color:0x9fb4bf, emissive:0x35c0d4, emissiveIntensity:0.7, roughness:0.3, metalness:0.4});
+          realKits[layer] = K;
+        }
+        mm = realKits[layer][name] || realKits[layer].steel;
+      }
+      mm.transparent = true;
+      matCache[ck] = mm;
+      return mm;
+    };
+    const L = (key)=>{ const lg=new T.Group(); lg.userData={key}; layers[key]=lg; group.add(lg); return lg; };
+    const A = (lg, layer, geo, name, x,y,z, rx,ry,rz)=>{
+      const mesh = new T.Mesh(geo, matFor(layer,name));
+      mesh.position.set(x,y,z);
+      if(rx)mesh.rotation.x=rx; if(ry)mesh.rotation.y=ry; if(rz)mesh.rotation.z=rz;
+      lg.add(mesh); return mesh;
+    };
+
+    // frame — permanent context, never peeled
+    const fr = L('frame');
+    A(fr,'frame', new T.BoxGeometry(7,0.7,5),'steelDark', 0,0.35,0);
+    A(fr,'frame', new T.BoxGeometry(7.5,0.16,5.4),'steelDark', 0,0.08,0);
+    [[-2.7,-1.5],[2.7,-1.5],[-2.7,1.5],[2.7,1.5]].forEach(p=> A(fr,'frame', new T.BoxGeometry(0.55,6.6,0.8),'steel', p[0],4.0,p[1]));
+    A(fr,'frame', new T.BoxGeometry(6.6,1.1,3.4),'paint', 0,7.9,0);
+    A(fr,'frame', new T.BoxGeometry(6.9,0.2,3.7),'steelDark', 0,8.6,0);
+    A(fr,'frame', new T.BoxGeometry(1.5,3.0,1.1),'cabinet', 4.35,1.85,0.9);
+    A(fr,'frame', new T.BoxGeometry(0.95,0.7,0.06),'hmi', 4.35,2.3,1.48);
+    [-2.4,0,2.4].forEach(x=> A(fr,'frame', new T.CylinderGeometry(0.045,0.045,1.05,8),'yellow', x,1.25,2.25));
+    A(fr,'frame', new T.CylinderGeometry(0.045,0.045,5.2,8),'yellow', 0,1.78,2.25, 0,0,Math.PI/2);
+
+    // shell — steam dome + insulation
+    const sh = L('shell');
+    A(sh,'shell', new T.CylinderGeometry(2.15,2.3,2.9,30),'insul', 0,4.55,0);
+    A(sh,'shell', new T.SphereGeometry(2.15,28,16,0,Math.PI*2,0,Math.PI/2),'insul', 0,6.0,0);
+    [3.6,4.5,5.4].forEach(y=> A(sh,'shell', new T.TorusGeometry(2.2,0.07,8,36),'steelDark', 0,y,0, Math.PI/2));
+    A(sh,'shell', new T.CylinderGeometry(0.32,0.32,1.1,16),'chrome', 0,6.9,0);
+    [[2.42,0.7],[2.42,-0.7]].forEach(p=> A(sh,'shell', new T.CylinderGeometry(0.09,0.09,3.4,10),'pipe', p[0],4.3,p[1]));
+
+    // heating — platen + three zone rings + feed
+    const he = L('heating');
+    A(he,'heating', new T.CylinderGeometry(1.95,1.95,0.4,30),'steel', 0,2.45,0);
+    const zoneYs = [3.3, 4.15, 5.0];
+    zoneYs.forEach((y,i)=>{
+      const ring = A(he,'heating', new T.TorusGeometry(1.7,0.14,10,40),'heater', 0,y,0, Math.PI/2);
+      if(i===2) hot.heating = ring;
+    });
+    A(he,'heating', new T.CylinderGeometry(0.07,0.07,2.3,8),'pipe', 3.0,5.0,0.4, 0,0,Math.PI/2);
+    A(he,'heating', new T.BoxGeometry(0.5,0.4,0.4),'steelDark', 1.95,5.0,0.4);
+
+    // bladder & mould cavity
+    const bl = L('bladder');
+    for(let i=0;i<8;i++){
+      const a = i/8*Math.PI*2;
+      const seg = A(bl,'bladder', new T.BoxGeometry(1.1,1.5,0.55),'steelDark', Math.cos(a)*1.5,3.55,Math.sin(a)*1.5, 0,-a+Math.PI/2,0);
+      seg.userData.radial = {x:Math.cos(a), z:Math.sin(a)};
+    }
+    A(bl,'bladder', new T.TorusGeometry(1.02,0.4,14,30),'tire', 0,3.55,0, Math.PI/2);
+    const blad = A(bl,'bladder', new T.SphereGeometry(0.68,20,14),'rubber', 0,3.55,0);
+    blad.scale.y = 0.78; hot.bladder = blad;
+
+    // hydraulics & drive
+    const dr = L('drive');
+    A(dr,'drive', new T.CylinderGeometry(0.5,0.5,2.2,20),'chrome', 0,1.15,0);
+    A(dr,'drive', new T.CylinderGeometry(0.72,0.72,0.26,20),'steel', 0,2.22,0);
+    A(dr,'drive', new T.BoxGeometry(1.2,0.9,0.9),'cabinet', -2.5,0.85,1.5);
+    A(dr,'drive', new T.CylinderGeometry(0.32,0.32,0.85,14),'steel', -1.55,0.85,1.5, 0,0,Math.PI/2);
+    const bear = A(dr,'drive', new T.BoxGeometry(1.05,0.85,0.85),'steelDark', 2.05,0.78,-1.35);
+    hot.drive = bear;
+    A(dr,'drive', new T.CylinderGeometry(0.14,0.14,2.1,10),'chrome', 1.0,0.78,-1.35, 0,0,Math.PI/2);
+
+    // sensors & control network
+    const se = L('sensors');
+    zoneYs.forEach((y,i)=>{
+      A(se,'sensors', new T.CylinderGeometry(0.05,0.05,0.55,8),'steel', 2.42,y,0, 0,0,Math.PI/2);
+      A(se,'sensors', new T.SphereGeometry(0.09,10,8),'sensor', 2.72,y,0);
+    });
+    A(se,'sensors', new T.BoxGeometry(0.24,0.24,0.24),'sensor', 2.42,2.9,0.7);
+    A(se,'sensors', new T.BoxGeometry(0.24,0.16,0.24),'sensor', 2.05,1.32,-1.35);
+    A(se,'sensors', new T.CylinderGeometry(0.03,0.03,2.4,6),'pipe', 3.4,4.0,0.45, 0,0,Math.PI/4);
+
+    // hot-swap candidates get their OWN material so a fault tints the one
+    // component, never its whole layer (the layer mats are shared)
+    Object.values(hot).forEach(mesh=>{ mesh.material = mesh.material.clone(); });
+
+    // machine-wide heat haze: an enclosing shell that pulses warm when a
+    // thermal excursion is detected but NOT localised (no component blamed)
+    const heat = new T.Mesh(new T.CylinderGeometry(3.3,3.6,9.2,26,1,true),
+      new T.MeshBasicMaterial({color:0xF0524B, transparent:true, opacity:0, side:T.DoubleSide, depthWrite:false}));
+    heat.position.y = 4.6; group.add(heat);
+
+    // collect per-layer material sets for fade control
+    Object.values(layers).forEach(lg=>{
+      const set = new Set();
+      lg.traverse(o=>{ if(o.material) set.add(o.material); });
+      lg.userData.mats = [...set];
+      lg.userData.curY = 0;
+    });
+    return {group, layers, hot, heat};
+  }
+
+  mkSparks(parent){
+    const T = window.THREE, N = 70;
+    const pos = new Float32Array(N*3);
+    const vel = [];
+    for(let i=0;i<N;i++){ vel.push({x:0,y:0,z:0,life:Math.random()}); }
+    const geo = new T.BufferGeometry();
+    geo.setAttribute('position', new T.BufferAttribute(pos,3));
+    const mat = new T.PointsMaterial({color:0xffb066, size:0.09, transparent:true, opacity:0, blending:T.AdditiveBlending, depthWrite:false});
+    const pts = new T.Points(geo, mat);
+    pts.frustumCulled = false;
+    parent.add(pts);
+    return { pts, mat, vel, anchor:new T.Vector3(0,4,0),
+      reset(i){
+        const a=this.anchor, p=pts.geometry.attributes.position.array;
+        p[i*3]=a.x+(Math.random()-0.5)*0.35; p[i*3+1]=a.y+(Math.random()-0.5)*0.2; p[i*3+2]=a.z+(Math.random()-0.5)*0.35;
+        const v=this.vel[i];
+        v.x=(Math.random()-0.5)*1.6; v.y=Math.random()*2.4+0.6; v.z=(Math.random()-0.5)*1.6; v.life=0.45+Math.random()*0.75;
+      },
+      step(dt){
+        const p=pts.geometry.attributes.position.array;
+        for(let i=0;i<N;i++){
+          const v=this.vel[i];
+          v.life-=dt;
+          if(v.life<=0){ this.reset(i); continue; }
+          v.y-=4.5*dt;
+          p[i*3]+=v.x*dt; p[i*3+1]+=v.y*dt; p[i*3+2]+=v.z*dt;
+        }
+        pts.geometry.attributes.position.needsUpdate = true;
+      } };
+  }
+
+  hotAnchor(layer){
+    return { heating:{x:1.7,y:5.0,z:0}, drive:{x:2.05,y:0.78,z:-1.35}, bladder:{x:0,y:3.55,z:0} }[layer] || {x:0,y:4,z:0};
+  }
+
+  stepInspExplode(){
+    const I=this._insp; if(!I||!I.models) return;
+    const order = this.inspLayers();
+    const selIdx = order.findIndex(l=>l.key===I.layerKey);
+    ['real','pinn'].forEach(side=>{
+      const model=I.models[side];
+      order.forEach((ld,i)=>{
+        const lg = model.layers[ld.key]; if(!lg) return;
+        const peeled = i<selIdx, selected = i===selIdx;
+        const tY = peeled ? ld.peelY : 0;
+        const tOp = selected ? (side==='pinn'?0.85:1.0) : peeled ? (side==='pinn'?0.05:0.08) : (side==='pinn'?0.3:0.45);
+        lg.userData.curY += (tY-lg.userData.curY)*0.10;
+        lg.position.y = lg.userData.curY;
+        lg.userData.mats.forEach(mm=>{ mm.opacity += (tOp-mm.opacity)*0.10; });
+        // mould segments part radially while their layer is selected
+        if(ld.key==='bladder') lg.children.forEach(ch=>{
+          if(ch.userData.radial){
+            const r = selected ? 0.55 : 0;
+            ch.userData.curR = (ch.userData.curR||0)+(r-(ch.userData.curR||0))*0.1;
+            ch.position.x = ch.userData.radial.x*(1.5+ch.userData.curR);
+            ch.position.z = ch.userData.radial.z*(1.5+ch.userData.curR);
+          }
+        });
+      });
+      const frameMats = model.layers.frame.userData.mats;
+      const fOp = side==='pinn'?0.14:0.4;
+      frameMats.forEach(mm=>{ mm.opacity += (fOp-mm.opacity)*0.1; });
+    });
+  }
+
+  stepInspGlow(t, dt){
+    const I=this._insp; if(!I||!I.models) return;
+    const f=I.fault||{}; const st=f.status||'green';
+    const machineWide = f.scope==='machine';
+    const target = (f.layer||machineWide) ? (st==='red'?1:st==='yellow'?0.42:0) : 0;
+    I.glow += (target-I.glow)*0.05;
+    const pulse = I.glow*(0.55+0.45*Math.sin(t*5.2));
+    const anchor = machineWide ? {x:0,y:4.6,z:0} : this.hotAnchor(f.layer);
+    ['real','pinn'].forEach(side=>{
+      const model=I.models[side], fx=I.fx[side];
+      // machine-wide: no component blamed — the whole press breathes heat
+      if(model.heat){
+        const hTarget = machineWide ? I.glow*(0.045+0.035*Math.sin(t*2.4)) : 0;
+        model.heat.material.opacity += (hTarget-model.heat.material.opacity)*0.1;
+      }
+      // hot component tint
+      Object.entries(model.hot).forEach(([lk,mesh])=>{
+        const mine = f.layer===lk && I.glow>0.03;
+        if(side==='real'){
+          if(mesh.userData.baseEmi===undefined){
+            mesh.userData.baseEmi = mesh.material.emissive ? mesh.material.emissive.getHex() : 0x000000;
+            mesh.userData.baseInt = mesh.material.emissiveIntensity||0;
+          }
+          if(mine){ mesh.material.emissive.setHex(0xF0524B); mesh.material.emissiveIntensity = 0.4+pulse*2.6; }
+          else { mesh.material.emissive.setHex(mesh.userData.baseEmi); mesh.material.emissiveIntensity = mesh.userData.baseInt; }
+        } else {
+          if(mine) mesh.material.color.setHex(0xF0524B);
+          else mesh.material.color.setHex(0x3fc9d4);
+        }
+      });
+      fx.light.position.set(anchor.x, anchor.y, anchor.z);
+      fx.light.intensity = machineWide ? pulse*1.6 : pulse*2.6;
+      // sparks pinpoint a spot — they only make sense for a localised fault
+      fx.sparks.anchor.set(anchor.x, anchor.y, anchor.z);
+      fx.sparks.mat.opacity = machineWide ? 0 : Math.max(0, I.glow-0.12)*0.95;
+      if(!machineWide && I.glow>0.12) fx.sparks.step(dt);
+    });
+    // healthy: cyan scan sweep on the PINN twin
+    if(I.scan){
+      const idle = 1-I.glow;
+      const ph = (t*0.35)%1;
+      I.scan.position.y = 0.4+ph*7.4;
+      I.scan.material.opacity = idle*0.5*Math.sin(ph*Math.PI);
+    }
+  }
+
+  buildInspSteps(){
+    const I=this._insp; if(!I) return;
+    const el = I.root.querySelector('#cw-insp-steps'); if(!el) return;
+    const f = I.fault||{};
+    const rows = this.inspLayers().map((ld,i)=>{
+      const active = ld.key===I.layerKey;
+      const isFault = f.layer===ld.key;
+      const dot = isFault ? '#F0524B' : (f.status==='green'?'#35C08A':'#3fc9d4');
+      return '<button data-layer="'+ld.key+'" style="text-align:left;background:'+(active?'#16242d':'transparent')+';border:1px solid '+(active?'#2e5560':'transparent')+';border-radius:10px;padding:10px 11px;cursor:pointer;color:inherit;font-family:inherit;display:block;width:100%;">'
+        +'<div style="display:flex;align-items:center;gap:8px;">'
+        +'<span style="font-family:\'IBM Plex Mono\',monospace;font-size:10px;color:#5f7682;">'+(i+1)+'</span>'
+        +'<span style="width:8px;height:8px;border-radius:50%;background:'+dot+';box-shadow:0 0 7px '+dot+'88;'+(isFault?'animation:cw-pulse 1.2s infinite;':'')+'"></span>'
+        +'<span style="font-size:12px;font-weight:600;color:'+(active?'#eaf1f4':'#b6c8d1')+';">'+ld.name+'</span></div>'
+        +'<div style="font-size:10px;color:#68808c;margin:4px 0 0 26px;line-height:1.35;">'+ld.sub+(isFault?' · <span style="color:#F0524B;font-weight:700;">fault localised</span>':'')+'</div>'
+        +'</button>';
+    }).join('');
+    const mwBanner = (f.scope==='machine' && f.status!=='green')
+      ? '<div style="margin:0 2px 8px;background:#F0524B14;border:1px solid #F0524B55;border-radius:8px;padding:8px 9px;font-size:10px;color:#e8a29f;line-height:1.4;"><b style="color:#F0524B;">THERMAL EXCURSION</b> — machine-wide, not layer-localised. All layers read against it.</div>'
+      : '';
+    el.innerHTML = '<div style="font-size:9.5px;letter-spacing:1.2px;color:#7f96a1;font-weight:700;padding:2px 6px 8px;">INSPECTION DEPTH</div>'+mwBanner+rows
+      +'<div style="margin-top:auto;padding:10px 6px 4px;font-size:10px;color:#5f7682;line-height:1.5;">Outer layers peel away as you descend. The twin and the physical model stay in lock-step.</div>';
+    el.querySelectorAll('button[data-layer]').forEach(b=>{ b.onclick = ()=>this.setInspLayer(b.getAttribute('data-layer')); });
+  }
+
+  setInspLayer(key){
+    const I=this._insp; if(!I) return;
+    I.layerKey = key;
+    this.buildInspSteps();
+    this.renderInspPanel();
+  }
+
+  renderInspPanel(){
+    const I=this._insp; if(!I) return;
+    const panel = I.root.querySelector('#cw-insp-panel'); if(!panel) return;
+    const m = this.inspMachine(); if(!m) return;
+    const ld = this.inspLayers().find(l=>l.key===I.layerKey);
+    const idx = this.inspLayers().findIndex(l=>l.key===I.layerKey);
+    const f = I.fault||{};
+    const p = this.pinnFor(m);
+    const spec = m.spec || this.curingSpec();
+    const labels = {mould_temp_C:['Mould Temp','°C'], pressure_bar:['Pressure','bar'], vibration_rms_mm_s:['Vibration','mm/s'], coil_power_kW:['Coil Power','kW']};
+    const tiles = this.inspSignalsFor(I.layerKey).map(k=>{
+      const v = m.readings[k]; if(typeof v!=='number') return '';
+      const e = this.evalLimit(k, v, spec);
+      return '<div style="background:#0f1519;border:1px solid #24333c;border-radius:9px;padding:9px 11px;position:relative;overflow:hidden;">'
+        +'<div style="position:absolute;top:0;left:0;bottom:0;width:3px;background:'+e.color+';"></div>'
+        +'<div style="font-size:10px;color:#8aa0ab;">'+labels[k][0]+'</div>'
+        +'<div style="display:flex;align-items:baseline;gap:4px;margin-top:4px;"><span style="font-family:\'IBM Plex Mono\',monospace;font-size:18px;font-weight:600;">'+v.toFixed(1)+'</span><span style="font-size:10px;color:#8aa0ab;">'+labels[k][1]+'</span></div>'
+        +'<div style="font-size:9.5px;color:'+e.color+';margin-top:3px;font-weight:600;">'+e.state+'</div></div>';
+    }).join('');
+    const res = typeof p.residual==='number' ? p.residual : 0;
+    const resColor = res<0.15?'#35C08A':res<0.4?'#F0B23E':'#F0524B';
+    const isFaultLayer = f.status!=='green' && (f.scope==='machine' || f.layer===I.layerKey);
+    const twinNote = {
+      shell:'Surface temperature is reconstructed across the dome from TC readings; the twin flags insulation loss as a widening reconstruction gap.',
+      heating:'The twin reconstructs the mould-temperature field from coil power + TC 1–3 and compares it to the sensors — divergence localises a failing zone.',
+      bladder:'Shaping pressure is cross-checked against the cure-window physics; a soft bladder shows up as pressure/temperature disagreement.',
+      drive:'Vibration RMS is scored against ISO 10816 zones and trended; bearing wear appears as a rising envelope, not a spike.',
+      sensors:'Every reading is HMAC-signed at the source and re-verified at rest — the custody chain the operator can audit from chat.'
+    }[I.layerKey];
+    let html = '<div style="font-size:9.5px;letter-spacing:1.2px;color:#7f96a1;font-weight:700;">LAYER '+(idx+1)+' / 5</div>'
+      +'<div style="font-size:16px;font-weight:700;margin-top:3px;">'+ld.name+'</div>'
+      +'<div style="font-size:11px;color:#8aa0ab;margin-top:2px;line-height:1.4;">'+ld.sub+'</div>';
+    if(tiles) html += '<div style="font-size:9.5px;letter-spacing:1.2px;color:#7f96a1;font-weight:700;margin:16px 0 8px;">LIVE SIGNALS · THIS LAYER</div>'
+      +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">'+tiles+'</div>';
+    html += '<div style="font-size:9.5px;letter-spacing:1.2px;color:#7f96a1;font-weight:700;margin:16px 0 8px;">WHAT THE TWIN SEES</div>'
+      +'<div style="background:#0f1720;border:1px solid #23404a;border-radius:10px;padding:12px;">'
+      +'<div style="display:flex;gap:14px;font-family:\'IBM Plex Mono\',monospace;font-size:13px;">'
+      +'<div><span style="color:#8aa0ab;font-size:10px;font-family:\'IBM Plex Sans\',sans-serif;">HEALTH</span><br>'+Math.round((p.health_index||0)*100)+'%</div>'
+      +'<div><span style="color:#8aa0ab;font-size:10px;font-family:\'IBM Plex Sans\',sans-serif;">RUL</span><br>'+Math.round(p.rul_cycles||0)+' cyc</div>'
+      +'<div style="flex:1;"><span style="color:#8aa0ab;font-size:10px;font-family:\'IBM Plex Sans\',sans-serif;">RECONSTRUCTION RESIDUAL</span>'
+      +'<div style="height:6px;background:#1a2831;border-radius:4px;margin-top:6px;overflow:hidden;"><div style="height:100%;width:'+Math.min(res*100,100)+'%;background:'+resColor+';"></div></div>'
+      +'<div style="font-size:10px;color:'+resColor+';margin-top:3px;">'+res.toFixed(3)+(p._synth?' · stand-in estimate':' · live MH-PINN v2')+'</div></div></div>'
+      +'<div style="font-size:11px;color:#9fb4bf;line-height:1.5;margin-top:10px;">'+twinNote+'</div></div>';
+
+    if(isFaultLayer){
+      const modeRows = (f.modes||[]).slice(0,3).map(fm=>{
+        const c = fm.p>0.4?'#F0524B':fm.p>0.15?'#F0B23E':'#6f8792';
+        return '<div style="margin-top:7px;"><div style="display:flex;justify-content:space-between;font-size:11.5px;"><span style="color:#c4d3da;">'+fm.name+'</span><span style="font-family:\'IBM Plex Mono\',monospace;color:'+c+';font-weight:600;">'+Math.round(fm.p*100)+'%</span></div>'
+          +'<div style="height:5px;background:#1a2831;border-radius:3px;margin-top:3px;overflow:hidden;"><div style="height:100%;width:'+Math.max(fm.p*100,3)+'%;background:'+c+';"></div></div></div>';
+      }).join('');
+      const sugRows = (f.sug||[]).map(s=>'<div style="display:flex;gap:7px;font-size:11.5px;color:#c4d3da;line-height:1.45;margin-top:6px;"><span style="color:#F0524B;">▸</span><span>'+s+'</span></div>').join('');
+      const adv = m.liveAdvisory ? '<div style="font-size:10px;color:#8aa0ab;margin-top:9px;">Linked advisory · <span style="color:#F0524B;font-weight:700;">'+(m.liveAdvisory.severity||'')+'</span> · '+(m.liveAdvisory.title||'')+' · jury-gated</div>' : '';
+      const whyRows = (f.why||[]).map(w=>'<div style="display:flex;gap:6px;font-size:10.5px;color:#9fb4bf;line-height:1.45;margin-top:4px;font-family:\'IBM Plex Mono\',monospace;"><span style="color:#5f7682;">›</span><span>'+w+'</span></div>').join('');
+      const mw = f.scope==='machine';
+      const faultTitle = mw ? '⚠ THERMAL EXCURSION · MACHINE-WIDE — NOT LOCALISED'
+                            : '⚠ FAULT LOCALISED · '+(f.comp||'').toUpperCase();
+      const caveat = f.synth
+        ? 'Design stand-in data — this press is not backend-instrumented.'
+        : (mw
+          ? 'The MH-PINN detects a thermal-mode excursion from the whole-machine physics — it <b>cannot resolve where</b> the heat source sits, so no layer or component is blamed. The haze on the model is machine-wide by design; finding the hot spot is an on-site job (IR camera).'
+          : 'The MH-PINN classifies the failure <b>mode</b> from signal physics — this signature is attributable to the <b>'+(f.comp||'subsystem').toLowerCase()+'</b>. The glow marks the subsystem, not a single part.');
+      html += '<div style="background:#F0524B14;border:1.5px solid #F0524B;border-radius:11px;padding:13px;margin-top:16px;animation:cw-danger 1.6s infinite;">'
+        +'<div style="font-size:10px;letter-spacing:1px;font-weight:800;color:#F0524B;">'+faultTitle+'</div>'
+        +modeRows+adv
+        +'<div style="font-size:10px;letter-spacing:1px;font-weight:700;color:#7f96a1;margin-top:12px;">'+(mw?'WHY WE KNOW · DATA LINEAGE':'HOW THIS IS LOCALISED · DATA LINEAGE')+'</div>'
+        +whyRows
+        +'<div style="font-size:10px;color:#68808c;line-height:1.5;margin-top:7px;">'+caveat+'</div>'
+        +'<div style="font-size:10px;letter-spacing:1px;font-weight:700;color:#F0B23E;margin-top:12px;">AGENT SUGGESTIONS</div>'+sugRows+'</div>';
+      // self-optimizing corrective loop
+      const fix = I.fix;
+      const planRows = (f.plan||[]).map((s,i)=>{
+        let ic='○', c='#5f7682';
+        if(fix){ if(i<fix.step){ic='✓'; c='#35C08A';} else if(i===fix.step && fix.running){ic='◌'; c='#3fc9d4';} }
+        return '<div style="display:flex;gap:8px;font-size:11.5px;line-height:1.5;margin-top:6px;color:'+(c==='#5f7682'?'#9fb4bf':'#eaf1f4')+';">'
+          +'<span style="font-family:\'IBM Plex Mono\',monospace;color:'+c+';'+(ic==='◌'?'animation:cw-blink 1s infinite;':'')+'">'+ic+'</span><span>'+s+'</span></div>';
+      }).join('');
+      const btn = fix && fix.running
+        ? '<div style="margin-top:12px;font-size:11px;color:#3fc9d4;font-weight:600;">Self-optimizing — step '+(fix.step+1)+' of '+(f.plan||[]).length+'…</div>'
+        : (fix && fix.done
+          ? '<div style="margin-top:12px;font-size:11px;color:#35C08A;font-weight:700;">✓ Corrective plan applied — press recovering. Decision logged.</div>'
+          : '<button id="cw-fix-btn" style="width:100%;margin-top:12px;background:#3fc9d4;border:none;border-radius:9px;padding:11px;font-family:inherit;font-size:12.5px;font-weight:700;color:#0f1519;cursor:pointer;">Run self-optimizing correction</button>'
+            +'<div style="font-size:9.5px;color:#5f7682;margin-top:6px;line-height:1.4;">You stay in charge: the agent applies setpoints, verifies recovery against the twin, and logs everything to the flight recorder.</div>');
+      html += '<div style="background:#0f1720;border:1px solid #2e5560;border-radius:11px;padding:13px;margin-top:12px;">'
+        +'<div style="font-size:10px;letter-spacing:1px;font-weight:800;color:#3fc9d4;">⟳ SELF-OPTIMIZING CORRECTION</div>'
+        +planRows+btn+'</div>';
+    } else if(f.layer && f.status!=='green'){
+      const fl = this.inspLayers().find(l=>l.key===f.layer);
+      html += '<div style="background:#F0524B10;border:1px solid #F0524B55;border-radius:10px;padding:11px 12px;margin-top:16px;display:flex;align-items:center;justify-content:space-between;gap:10px;">'
+        +'<div style="font-size:11.5px;color:#e8b0ad;line-height:1.4;">Fault localised in <b>'+fl.name+'</b> — this layer reads clean.</div>'
+        +'<button id="cw-jump-btn" style="background:#F0524B;border:none;border-radius:8px;padding:8px 12px;font-family:inherit;font-size:11px;font-weight:700;color:#0f1519;cursor:pointer;white-space:nowrap;">Go to fault</button></div>';
+    } else {
+      html += '<div style="background:#12261e;border:1px solid #2f6b4f;border-radius:10px;padding:12px;margin-top:16px;">'
+        +'<div style="font-size:10px;letter-spacing:1px;font-weight:800;color:#35C08A;">⟳ SELF-OPTIMIZATION · IDLE</div>'
+        +'<div style="font-size:11.5px;color:#a9cdbb;line-height:1.5;margin-top:7px;">Optimum holding. The twin keeps reconstructing this layer every cure and retunes its thresholds from operator decisions — no correction needed.</div></div>';
+    }
+    html += '<button id="cw-ask-btn" style="width:100%;margin-top:14px;background:#182530;border:1px solid #2b3d47;border-radius:9px;padding:11px;color:#b6c8d1;font-family:inherit;font-size:12px;font-weight:600;cursor:pointer;">Ask the agent about this layer</button>';
+    panel.innerHTML = html;
+    const fixBtn = panel.querySelector('#cw-fix-btn'); if(fixBtn) fixBtn.onclick = ()=>this.runSelfFix();
+    const jump = panel.querySelector('#cw-jump-btn'); if(jump) jump.onclick = ()=>this.setInspLayer(f.layer);
+    const ask = panel.querySelector('#cw-ask-btn'); if(ask) ask.onclick = ()=>{
+      const q = 'On '+m.id+', walk me through the '+ld.name.toLowerCase()+' layer — what did you check and what should I do next?';
+      this.closeInspector();
+      this.setState({activeView:'chat'});
+      this.sendText(q);
+    };
+  }
+
+  runSelfFix(){
+    const I=this._insp; if(!I || (I.fix && I.fix.running)) return;
+    const m = this.inspMachine(); if(!m) return;
+    const f = I.fault = this.faultInfoFor(m);
+    if(!f.plan || !f.plan.length) return;
+    I.fix = {running:true, step:0, done:false};
+    this.renderInspPanel();
+    const advance = ()=>{
+      const fx=I.fix; if(!this._insp || !fx) return;
+      fx.step++;
+      if(fx.step===3){
+        // "apply setpoints" — the demo's real corrective action on the backend
+        this.resetFault();
+      }
+      if(fx.step===4){
+        // verify recovery: wait until the composite status reads green
+        this.renderInspPanel();
+        const t0=performance.now();
+        const watch=setInterval(()=>{
+          if(!this._insp){ clearInterval(watch); return; }
+          const mm=this.inspMachine();
+          const ok = mm && this.uiStatus(mm).status==='green';
+          if(ok || performance.now()-t0>12000){
+            clearInterval(watch);
+            I.fix={running:false, step:(f.plan||[]).length, done:true};
+            I.fault=this.faultInfoFor(this.inspMachine()||mm||m);
+            this.buildInspSteps(); this.renderInspPanel();
+            this.setState({toastText:'Self-optimizing correction applied · '+m.id+' recovering', toastVisible:true});
+            clearTimeout(this._toast);
+            this._toast=setTimeout(()=>this.setState({toastVisible:false}),3200);
+          }
+        },600);
+        return;
+      }
+      this.renderInspPanel();
+      setTimeout(advance, 900+Math.random()*500);
+    };
+    setTimeout(advance, 900);
+  }
+
+  // ==== DIGITAL PASSPORT (physical-layer NFC card) =========================
+  // Light-themed identity card per press: component schematic + live status
+  // on the left, the PINN physics-residual graph on the right (measured vs
+  // predicted band vs envelope, residual σ strip, verdict), custody seal in
+  // the footer. The graph reads the rolling series sampled client-side.
+  sampleSeries(){
+    if(!this._series) this._series = {};
+    this.currentMachines().forEach(m=>{
+      const p = this.pinnFor(m);
+      const arr = this._series[m.id] = (this._series[m.id]||[]);
+      // ambiance presses hold static design values — a hair of jitter keeps
+      // their graph alive; live machines are plotted exactly as reported
+      const jit = m.isLive ? 0 : (Math.random()-0.5)*0.55;
+      arr.push({ temp:(m.readings.mould_temp_C||0)+jit,
+                 residual:(typeof p.residual==='number'?p.residual:0),
+                 epoch:this.state.liveEpoch||0 });
+      if(arr.length>90) arr.shift();
+    });
+  }
+
+  openPassport(id){
+    if(this._pass) this.closePassport();
+    const m = this.currentMachines().find(x=>x.id===id);
+    if(!m) return;
+    const root = document.createElement('div');
+    root.id = 'cw-passport';
+    root.style.cssText = 'position:fixed;inset:0;z-index:80;background:rgba(10,14,17,.72);display:flex;align-items:center;justify-content:center;animation:cw-fade .18s ease;font-family:\'IBM Plex Sans\',system-ui,sans-serif;';
+    root.innerHTML = '<div id="cw-pass-card" style="width:1060px;max-width:94vw;max-height:92vh;overflow-y:auto;background:#fbfcfd;border-radius:16px;box-shadow:0 24px 80px rgba(0,0,0,.5);animation:cw-up .22s ease;"></div>';
+    root.addEventListener('click', e=>{ if(e.target===root) this.closePassport(); });
+    document.body.appendChild(root);
+    this._pass = { id, root };
+    this._passKey = (e)=>{ if(e.key==='Escape') this.closePassport(); };
+    window.addEventListener('keydown', this._passKey);
+    this.renderPassport();
+    this._pass.timer = setInterval(()=>this.renderPassport(), 1500);
+  }
+  closePassport(){
+    const P = this._pass; if(!P) return;
+    this._pass = null;
+    if(P.timer) clearInterval(P.timer);
+    if(this._passKey){ window.removeEventListener('keydown', this._passKey); this._passKey=null; }
+    if(P.root && P.root.parentNode) P.root.parentNode.removeChild(P.root);
+  }
+
+  passportChart(m){
+    const series = (this._series && this._series[m.id]) || [];
+    if(series.length<3) return '<div style="font-size:11px;color:#7a8b94;padding:30px 0;text-align:center;">collecting samples…</div>';
+    const spec = m.spec || this.curingSpec();
+    const envHi = (spec.mould_temp_C && spec.mould_temp_C.operating) ? spec.mould_temp_C.operating[1] : 210;
+    const W=440, H=170, pad=10, padL=40;
+    const temps = series.map(s=>s.temp);
+    const lo = Math.min.apply(null, temps.concat([envHi-18]))-3;
+    const hi = Math.max.apply(null, temps.concat([envHi+2]))+3;
+    const xF = i => padL + (i/(series.length-1))*(W-padL-pad);
+    const yF = v => (H-22) - ((v-lo)/(hi-lo))*(H-34);
+    // predicted band = smoothed measured ± residual-scaled halfwidth
+    const smooth = temps.map((v,i)=>{
+      let a=0,n=0; for(let k=Math.max(0,i-3);k<=Math.min(temps.length-1,i+3);k++){a+=temps[k];n++;}
+      return a/n;
+    });
+    const bandTop = series.map((s,i)=> xF(i)+','+yF(smooth[i]+Math.max(0.9, s.residual*10)));
+    const bandBot = series.map((s,i)=> xF(i)+','+yF(smooth[i]-Math.max(0.9, s.residual*10))).reverse();
+    const measured = series.map((s,i)=> xF(i)+','+yF(s.temp)).join(' ');
+    const last = series[series.length-1];
+    const envY = yF(envHi);
+    const ticks = [lo+2, (lo+hi)/2, hi-2].map(v=>'<text x="'+(padL-6)+'" y="'+(yF(v)+3)+'" text-anchor="end" font-family="IBM Plex Mono,monospace" font-size="8.5" fill="#8a99a1">'+v.toFixed(0)+'</text>').join('');
+    // residual σ strip
+    const SH=54;
+    const sig = s => Math.min(4, s.residual*10);
+    const sy = v => (SH-14) - (v/4)*(SH-22);
+    const bars = series.map((s,i)=>'<rect x="'+(xF(i)-1.4)+'" y="'+sy(sig(s))+'" width="2.8" height="'+((SH-14)-sy(sig(s)))+'" fill="'+(sig(s)>=3?'#c94f4a':sig(s)>=1?'#d99a2b':'#b9c4ca')+'"/>').join('');
+    const lastSig = sig(last);
+    const epochs = series.filter((_,i)=>i%15===0).map((s,i)=>'<text x="'+xF(i*15)+'" y="'+(SH-2)+'" text-anchor="middle" font-family="IBM Plex Mono,monospace" font-size="8" fill="#9aa8b0">'+(s.epoch||'')+'</text>').join('');
+    return ''
+      +'<div style="display:flex;gap:14px;font-size:9.5px;color:#5b6b74;margin-bottom:6px;align-items:center;">'
+      +'<span style="display:flex;align-items:center;gap:5px;"><span style="width:14px;height:2px;background:#2f7fc1;display:inline-block;"></span>measured</span>'
+      +'<span style="display:flex;align-items:center;gap:5px;"><span style="width:14px;height:8px;background:#dbe9f5;border:1px solid #c3d9ec;display:inline-block;"></span>pinn predicted band</span>'
+      +'<span style="display:flex;align-items:center;gap:5px;"><span style="width:14px;border-top:2px dashed #c94f4a;display:inline-block;"></span>envelope '+envHi.toFixed(0)+'</span></div>'
+      +'<svg viewBox="0 0 '+W+' '+H+'" style="display:block;width:100%;">'
+      +ticks
+      +'<line x1="'+padL+'" x2="'+(W-pad)+'" y1="'+envY+'" y2="'+envY+'" stroke="#c94f4a" stroke-width="1.4" stroke-dasharray="5 4"/>'
+      +'<polygon points="'+bandTop.join(' ')+' '+bandBot.join(' ')+'" fill="#dbe9f5" stroke="#c3d9ec" stroke-width="0.6" opacity="0.9"/>'
+      +'<polyline points="'+measured+'" fill="none" stroke="#2f7fc1" stroke-width="1.8" stroke-linejoin="round"/>'
+      +'<circle cx="'+xF(series.length-1)+'" cy="'+yF(last.temp)+'" r="3" fill="#2f7fc1"/>'
+      +'<text x="'+(xF(series.length-1)-8)+'" y="'+(yF(last.temp)-7)+'" text-anchor="end" font-family="IBM Plex Mono,monospace" font-size="9.5" font-weight="600" fill="#2b3a42">'+last.temp.toFixed(1)+'</text>'
+      +'</svg>'
+      +'<div style="font-size:9.5px;color:#7a8b94;margin:8px 0 2px;">residual [σ]</div>'
+      +'<svg viewBox="0 0 '+W+' '+SH+'" style="display:block;width:100%;">'
+      +'<line x1="'+padL+'" x2="'+(W-pad)+'" y1="'+sy(3)+'" y2="'+sy(3)+'" stroke="#c94f4a" stroke-width="1" stroke-dasharray="3 3" opacity="0.7"/>'
+      +'<text x="'+(W-pad)+'" y="'+(sy(3)-3)+'" text-anchor="end" font-size="8" fill="#c94f4a">+3σ</text>'
+      +'<line x1="'+padL+'" x2="'+(W-pad)+'" y1="'+(SH-14)+'" y2="'+(SH-14)+'" stroke="#d4dde1" stroke-width="1"/>'
+      +bars+epochs+'</svg>'
+      +(lastSig<1
+        ? '<div style="margin-top:12px;background:#eef7ee;border:1px solid #bcdcbc;border-radius:8px;padding:10px 13px;font-family:IBM Plex Mono,monospace;font-size:11.5px;color:#2e7d43;">✓ residual within ±1σ — cure window stable</div>'
+        : lastSig<3
+        ? '<div style="margin-top:12px;background:#fdf6e8;border:1px solid #ecd9ab;border-radius:8px;padding:10px 13px;font-family:IBM Plex Mono,monospace;font-size:11.5px;color:#9a7018;">△ residual trending '+lastSig.toFixed(1)+'σ — watching the next cures</div>'
+        : '<div style="margin-top:12px;background:#fdeeee;border:1px solid #ecbcba;border-radius:8px;padding:10px 13px;font-family:IBM Plex Mono,monospace;font-size:11.5px;color:#b03a34;">✗ physics envelope breached ('+lastSig.toFixed(1)+'σ) — '+((this.failureModesFor(m)[0]||{}).name||'fault')+' suspected</div>');
+  }
+
+  passportSchematic(){
+    // curing press — side elevation, thin-line technical style
+    const s = 'stroke="#5b6b74" stroke-width="1.3" fill="none"';
+    const sf = 'stroke="#5b6b74" stroke-width="1.3" fill="#eef1f3"';
+    const lbl = 'font-family="IBM Plex Mono,monospace" font-size="8.5" fill="#5b6b74"';
+    const dash = 'stroke="#9aa8b0" stroke-width="0.9" stroke-dasharray="4 3"';
+    return '<svg viewBox="0 0 400 300" style="display:block;width:100%;">'
+      +'<text x="16" y="18" font-family="IBM Plex Mono,monospace" font-size="9" letter-spacing="1" fill="#7a8b94">CURING PRESS — SIDE ELEVATION</text>'
+      // base + posts
+      +'<rect x="70" y="252" width="220" height="16" '+sf+'/>'
+      +'<rect x="88" y="90" width="16" height="162" '+sf+'/>'
+      +'<rect x="256" y="90" width="16" height="162" '+sf+'/>'
+      +'<rect x="76" y="76" width="208" height="16" '+sf+'/>'
+      // dome
+      +'<path d="M120 150 a60 46 0 0 1 120 0" '+sf+'/>'
+      +'<line x1="120" y1="150" x2="240" y2="150" '+s+'/>'
+      // bladder + tire cavity
+      +'<circle cx="180" cy="176" r="26" '+s+'/>'
+      +'<circle cx="180" cy="176" r="9" '+s+'/>'
+      // platen + ram
+      +'<rect x="128" y="206" width="104" height="12" '+sf+'/>'
+      +'<rect x="170" y="218" width="20" height="34" '+sf+'/>'
+      // motor + cabinet
+      +'<rect x="300" y="196" width="52" height="34" rx="4" '+sf+'/>'
+      +'<line x1="290" y1="213" x2="300" y2="213" '+s+'/>'
+      // gap servo on crown
+      +'<rect x="172" y="52" width="16" height="24" '+sf+'/>'
+      +'<line x1="180" y1="42" x2="180" y2="52" '+s+'/><path d="M176 46 180 40 184 46" '+s+'/>'
+      +'<text x="192" y="50" '+lbl+'>DOME LOCK SERVO</text>'
+      // T probe
+      +'<circle cx="252" cy="128" r="5" '+s+'/><line x1="257" y1="128" x2="286" y2="120" '+dash+'/>'
+      +'<text x="290" y="122" '+lbl+'>T PROBE (TC-3)</text>'
+      // motor label
+      +'<text x="306" y="190" '+lbl+'>DRIVE MOTOR</text>'
+      // flow arrows
+      +'<line x1="18" y1="232" x2="88" y2="232" '+dash+'/><path d="M82 228 90 232 82 236" fill="#9aa8b0" stroke="none"/>'
+      +'<text x="18" y="224" '+lbl+'>GREEN TIRE IN</text>'
+      +'<line x1="272" y1="248" x2="342" y2="248" '+dash+'/><path d="M336 244 344 248 336 252" fill="#9aa8b0" stroke="none"/>'
+      +'<text x="272" y="242" '+lbl+'>CURED TIRE OUT</text>'
+      +'</svg>';
+  }
+
+  renderPassport(){
+    const P = this._pass; if(!P) return;
+    const card = P.root.querySelector('#cw-pass-card'); if(!card) return;
+    const m = this.currentMachines().find(x=>x.id===P.id); if(!m) return;
+    const meta = this.uiStatus(m);
+    const spec = m.spec || this.curingSpec();
+    const r = m.readings;
+    const p = this.pinnFor(m);
+    const pillC = meta.status==='green' ? {c:'#3d9e6b',t:'NOMINAL'} : meta.status==='yellow' ? {c:'#d99a2b',t:'WATCH'} : {c:'#c94f4a',t:'ALERT'};
+    const dot = (col)=>'<span style="width:9px;height:9px;border-radius:50%;background:'+col+';display:inline-block;box-shadow:0 0 5px '+col+'66;"></span>';
+    const dcol = e => e.color==='#F0524B' ? '#c94f4a' : e.color==='#F0B23E' ? '#d99a2b' : '#3d9e6b';
+    const et = this.evalLimit('mould_temp_C', r.mould_temp_C, spec);
+    const ep = this.evalLimit('pressure_bar', r.pressure_bar, spec);
+    const ev = this.evalLimit('vibration_rms_mm_s', r.vibration_rms_mm_s, spec);
+    const ew = this.evalLimit('coil_power_kW', r.coil_power_kW, spec);
+    const compRow = (col, name, val)=>'<div style="display:flex;align-items:center;gap:10px;font-size:12px;color:#42525b;margin-top:11px;">'+dot(col)
+      +'<span style="font-weight:700;color:#2b3a42;">'+name+'</span><span style="font-family:IBM Plex Mono,monospace;font-size:11px;color:#5b6b74;">'+val+'</span></div>';
+    card.innerHTML = ''
+      +'<div style="display:flex;align-items:center;justify-content:space-between;padding:16px 22px;border-bottom:1px solid #e3e9ec;">'
+      +'<div style="display:flex;align-items:baseline;gap:12px;"><span style="font-family:IBM Plex Mono,monospace;font-size:15px;font-weight:700;letter-spacing:1px;color:#1d2b33;">'+m.id+' — CURING PRESS</span>'
+      +'<span style="font-size:10.5px;letter-spacing:.8px;color:#7a8b94;font-weight:600;">COHORT CP · REPORTS TO PRAETOR · BAY '+m.bay+'</span></div>'
+      +'<div style="display:flex;align-items:center;gap:10px;">'
+      +'<span style="font-family:IBM Plex Mono,monospace;font-size:10px;font-weight:700;letter-spacing:1px;color:'+pillC.c+';border:1.5px solid '+pillC.c+';border-radius:7px;padding:4px 11px;background:'+pillC.c+'0d;">'+pillC.t+'</span>'
+      +'<button id="cw-pass-close" style="width:30px;height:30px;background:#fff;border:1px solid #d4dde1;border-radius:8px;cursor:pointer;color:#5b6b74;font-size:15px;line-height:1;">×</button></div></div>'
+      +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;padding:18px 22px;">'
+      // left — components
+      +'<div style="background:#fff;border:1px solid #e3e9ec;border-radius:10px;padding:16px 18px;">'
+      +'<div style="font-size:10.5px;letter-spacing:1.2px;font-weight:700;color:#2b3a42;">COMPONENTS <span style="color:#7a8b94;font-weight:600;">— PRESS '+m.id+' · TIER-1 SENTINEL</span></div>'
+      +'<div style="margin-top:10px;">'+this.passportSchematic()+'</div>'
+      +compRow(dcol(et), 'Heater stack', 'zones '+r.mould_temp_C.toFixed(1)+' °C · coil '+r.coil_power_kW.toFixed(1)+' kW')
+      +compRow(dcol(ep), 'Bladder & shaping', r.pressure_bar.toFixed(1)+' bar · cure window '+(ep.color==='#35C08A'?'held':'stressed'))
+      +compRow(dcol(ev), 'Drive & bearing', r.vibration_rms_mm_s.toFixed(2)+' mm/s · '+ev.state)
+      +compRow(dcol(et), 'Sheet temp probe', 'TC-3 cross-checked vs twin · calibrated 07-01')
+      +'</div>'
+      // right — pinn residual
+      +'<div style="background:#fff;border:1px solid #e3e9ec;border-radius:10px;padding:16px 18px;">'
+      +'<div style="font-size:10.5px;letter-spacing:1.2px;font-weight:700;color:#2b3a42;">PINN — PHYSICS RESIDUAL <span style="color:#7a8b94;font-weight:600;">· MOULD_TEMP [°C]</span></div>'
+      +'<div style="font-size:10px;color:#7a8b94;margin-top:3px;font-family:IBM Plex Mono,monospace;">health '+Math.round((p.health_index||0)*100)+'% · rul '+Math.round(p.rul_cycles||0)+' cyc · '+(p._synth?'stand-in estimate':'MH-PINN v2 · live')+'</div>'
+      +'<div style="margin-top:12px;">'+this.passportChart(m)+'</div>'
+      +'</div></div>'
+      +'<div style="padding:13px 22px;border-top:1px solid #e3e9ec;font-family:IBM Plex Mono,monospace;font-size:10px;letter-spacing:1px;color:#7a8b94;">CUSTODY CHAIN SEALED · HMAC-SHA256 VERIFIED · RAW ARRAYS RESOLVABLE FROM THE FORENSIC ARCHIVE</div>';
+    card.querySelector('#cw-pass-close').onclick = ()=>this.closePassport();
   }
 
   // ---- actions ----
@@ -2079,7 +2927,9 @@ class Component extends DCLogic {
       acceptFn: ()=>this.openConfirm('accept'),
       overrideFn: ()=>this.openConfirm('override'),
       decided: !!dec, undecided: !dec,
-      decisionText, decisionStyle
+      decisionText, decisionStyle,
+      inspectFn: ()=>this.openInspector(m.id),
+      passportFn: ()=>this.openPassport(m.id)
     };
   }
 
