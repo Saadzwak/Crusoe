@@ -110,6 +110,59 @@ def teams_card(n: dict) -> dict:
     }
 
 
+# Responsible-person routing (concept, filled with DEMO personas — see
+# ASSIGNMENTS below; NO real contacts hardcoded). In production each machine's
+# responsible operator would carry their own destination — a per-person Teams
+# chat/channel webhook, an @mention id, or an email — resolved here instead of
+# posting every alert to one shared channel. MVP: one TEAMS_WEBHOOK_URL, and we
+# name the assigned operator inside the card so the routing intent is visible.
+def workflows_message(n: dict) -> dict:
+    """Payload for a Microsoft Teams **Workflows** Incoming Webhook.
+
+    The old Office 365 *Connectors* webhook (the MessageCard in `teams_card`)
+    is retired (Microsoft, end-2025). The current path is a Power Automate /
+    Workflows flow ("Post to a channel when a webhook request is received"),
+    which accepts an **Adaptive Card** wrapped in the message/attachments
+    envelope below. Kept separate from teams_card so nothing legacy breaks.
+    """
+    mid = n.get("machine_id", "?")
+    sev = (n.get("severity") or "INFO").upper()
+    who = (n.get("to_operator") or {}).get("name") or "on-call operator"
+    facts = [
+        {"title": "Machine", "value": mid},
+        {"title": "Severity", "value": sev},
+        {"title": "Responsible", "value": who},
+    ]
+    if n.get("advisory_id"):
+        facts.append({"title": "Advisory", "value": f"#{n['advisory_id']}"})
+    body = [
+        {"type": "TextBlock", "size": "Large", "weight": "Bolder",
+         "color": "Attention" if sev in ("HIGH", "CRITICAL") else "Default",
+         "text": f"PRAETOR {sev} — {mid}"},
+        {"type": "TextBlock", "spacing": "None", "isSubtle": True,
+         "text": "Michelin Roanne · C3M curing line"},
+        {"type": "TextBlock", "wrap": True, "weight": "Bolder",
+         "text": n.get("title") or "Plant notification"},
+        {"type": "TextBlock", "wrap": True, "text": n.get("body", "")},
+        {"type": "FactSet", "facts": facts},
+    ]
+    card = {
+        "type": "AdaptiveCard",
+        "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+        "version": "1.4",
+        "body": body,
+        "actions": [{
+            "type": "Action.OpenUrl", "title": "Open operator console",
+            "url": f"{settings.public_app_url}#machine={mid}",
+        }],
+    }
+    return {"type": "message",
+            "attachments": [{
+                "contentType": "application/vnd.microsoft.card.adaptive",
+                "content": card,
+            }]}
+
+
 # ================================================================== manager
 class InterventionManager:
     """One active intervention per machine; every transition is persisted to
@@ -151,13 +204,28 @@ class InterventionManager:
             self._spawn(self._post_teams(n))
 
     async def _post_teams(self, n: dict) -> None:
-        """Optional real Teams card — never raises, never blocks the demo."""
+        """Optional real Teams alert — never raises, never blocks the demo.
+
+        Uses the current **Workflows** Adaptive-Card format (the legacy
+        Connectors MessageCard is retired). If someone still runs an old
+        connector URL, set TEAMS_WEBHOOK_LEGACY=1 to fall back to teams_card.
+        """
         try:
+            import os
+
             import httpx  # transitive dep of openai — always present
-            async with httpx.AsyncClient(timeout=5.0) as cli:
-                await cli.post(settings.teams_webhook_url, json=teams_card(n))
+            payload = (teams_card(n) if os.environ.get("TEAMS_WEBHOOK_LEGACY") == "1"
+                       else workflows_message(n))
+            async with httpx.AsyncClient(timeout=6.0) as cli:
+                r = await cli.post(settings.teams_webhook_url, json=payload)
+                if r.status_code >= 300:
+                    print(f"[operator_flow] Teams webhook returned {r.status_code}: "
+                          f"{r.text[:160]}")
+                else:
+                    print(f"[operator_flow] Teams alert delivered for "
+                          f"{n.get('machine_id')} ({n.get('severity')})")
         except Exception as e:  # noqa: BLE001
-            print(f"[operator_flow] Teams webhook failed ({type(e).__name__}); "
+            print(f"[operator_flow] Teams webhook failed ({type(e).__name__}: {e}); "
                   "in-app notification already delivered")
 
     # ------------------------------------------------------------ lifecycle
@@ -506,5 +574,5 @@ async def quick_answer(question: str, machine_id: Optional[str], store: Any,
 
 
 __all__ = ["OPERATORS", "ASSIGNMENTS", "assigned_operator", "teams_card",
-           "InterventionManager", "build_factory_state", "stream_quick",
-           "quick_answer"]
+           "workflows_message", "_notification", "InterventionManager",
+           "build_factory_state", "stream_quick", "quick_answer"]

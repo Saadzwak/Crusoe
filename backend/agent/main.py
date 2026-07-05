@@ -56,7 +56,9 @@ from .crusoe_client import get_client
 from .knowledge import Knowledge
 from .operator import OperatorAgent
 from .operator_flow import (ASSIGNMENTS, OPERATORS, InterventionManager,
-                            build_factory_state, quick_answer, stream_quick)
+                            _notification, assigned_operator,
+                            build_factory_state, quick_answer, stream_quick,
+                            workflows_message)
 from .schemas import (PinnReading, PlantSummary, SignedReading, TickResult,
                       TriageResult)
 from .state_store import StateStore
@@ -438,6 +440,41 @@ async def scenario_reset() -> dict:
         print(f"[main] reset advisory clear failed ({e!r})")
     _ensure_loop()
     return {"status": "heartbeat", "epoch": S.epoch}
+
+
+@app.post("/api/notify/test")
+async def notify_test(machine_id: str = "RC-07", severity: str = "HIGH") -> dict:
+    """Fire a TEST alert to the configured Teams Workflows webhook so you can
+    verify routing before the demo. Names the machine's responsible operator
+    (ASSIGNMENTS) and posts the real Adaptive Card. Returns the exact payload
+    and the webhook's HTTP status. No real contact is ever hardcoded."""
+    op = assigned_operator(machine_id)
+    n = _notification("alert", str(machine_id).upper(),
+                      to_operator={"id": op["id"], "name": op["name"]},
+                      advisory_id="TEST0000", severity=severity.upper(),
+                      title=f"TEST alert on {machine_id}",
+                      body="This is a PRAETOR notification test — no real fault. "
+                           "If you see this card in Teams, routing works.")
+    payload = workflows_message(n)
+    configured = bool(settings.teams_webhook_url)
+    result: dict = {"configured": configured, "responsible": op["name"],
+                    "would_send": payload}
+    if not configured:
+        result["hint"] = ("Set TEAMS_WEBHOOK_URL in .env to a Teams Workflows "
+                          "incoming-webhook URL, then call this again.")
+        return result
+    try:
+        import httpx
+        async with httpx.AsyncClient(timeout=8.0) as cli:
+            r = await cli.post(settings.teams_webhook_url, json=payload)
+        result["http_status"] = r.status_code
+        result["delivered"] = r.status_code < 300
+        if r.status_code >= 300:
+            result["response"] = r.text[:200]
+    except Exception as e:  # noqa: BLE001
+        result["delivered"] = False
+        result["error"] = f"{type(e).__name__}: {e}"
+    return result
 
 
 @app.get("/api/history")
