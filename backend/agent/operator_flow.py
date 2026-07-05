@@ -160,7 +160,39 @@ def workflows_message(n: dict) -> dict:
             "attachments": [{
                 "contentType": "application/vnd.microsoft.card.adaptive",
                 "content": card,
-            }]}
+            }],
+            # Extra key (Teams ignores it): lets the SAME Power Automate flow
+            # add a "Create event (V4)" action and book the intervention slot
+            # on the responsible operator's / shared factory calendar —
+            # expressions like triggerBody()?['praetor_event']?['subject'].
+            "praetor_event": calendar_event(n)}
+
+
+def calendar_event(n: dict) -> dict:
+    """Intervention slot for the responsible operator's calendar.
+
+    Concept: the plant's SHARED calendar shows who is on which machine; with
+    one demo persona we book the responsible operator's own calendar. Times
+    are UTC (flow side picks Time zone = UTC); slot length is
+    CALENDAR_SLOT_MIN (default 45 min) starting now.
+    """
+    import datetime as _dt
+    mid = n.get("machine_id", "?")
+    sev = (n.get("severity") or "INFO").upper()
+    who = (n.get("to_operator") or {}).get("name") or "on-call operator"
+    start = _dt.datetime.now(_dt.timezone.utc)
+    end = start + _dt.timedelta(minutes=settings.calendar_slot_min)
+    fmt = "%Y-%m-%dT%H:%M:%S"
+    return {
+        "subject": f"PRAETOR {sev} — intervention {mid} ({who})",
+        "start": start.strftime(fmt),
+        "end": end.strftime(fmt),
+        "time_zone": "UTC",
+        "body": (f"{n.get('title', '')}\n{n.get('body', '')}\n\n"
+                 f"Responsible: {who}\nConsole: {settings.public_app_url}"
+                 f"#machine={mid}"),
+        "machine_id": mid, "severity": sev, "operator": who,
+    }
 
 
 # ================================================================== manager
@@ -203,6 +235,31 @@ class InterventionManager:
             "to": (n.get("to_operator") or {}).get("name", "")})
         if settings.teams_webhook_url:
             self._spawn(self._post_teams(n))
+        # Second flow (optional): book the intervention slot on the
+        # responsible operator's calendar. The one-flow setup instead reads
+        # `praetor_event` from the Teams payload — no URL needed here.
+        if settings.calendar_webhook_url:
+            self._spawn(self._post_calendar(n))
+
+    async def _post_calendar(self, n: dict) -> None:
+        """Optional calendar-slot booking — never raises, never blocks."""
+        try:
+            import httpx
+            ev = calendar_event(n)
+            async with httpx.AsyncClient(timeout=6.0) as cli:
+                r = await cli.post(settings.calendar_webhook_url, json=ev)
+            if r.status_code < 300:
+                self.store.log_event("calendar", {
+                    "machine_id": ev["machine_id"], "to": ev["operator"],
+                    "start": ev["start"], "severity": ev["severity"]})
+                print(f"[operator_flow] calendar slot booked for "
+                      f"{ev['operator']} ({ev['machine_id']})")
+            else:
+                print(f"[operator_flow] calendar webhook returned "
+                      f"{r.status_code}: {r.text[:120]}")
+        except Exception as e:  # noqa: BLE001
+            print(f"[operator_flow] calendar webhook failed "
+                  f"({type(e).__name__}: {e}); Teams alert already delivered")
 
     async def _post_teams(self, n: dict) -> None:
         """Optional real Teams alert — never raises, never blocks the demo.
@@ -575,5 +632,6 @@ async def quick_answer(question: str, machine_id: Optional[str], store: Any,
 
 
 __all__ = ["OPERATORS", "ASSIGNMENTS", "assigned_operator", "teams_card",
-           "workflows_message", "_notification", "InterventionManager",
-           "build_factory_state", "stream_quick", "quick_answer"]
+           "workflows_message", "calendar_event", "_notification",
+           "InterventionManager", "build_factory_state", "stream_quick",
+           "quick_answer"]

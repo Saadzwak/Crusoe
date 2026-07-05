@@ -57,8 +57,8 @@ from .knowledge import Knowledge
 from .operator import OperatorAgent
 from .operator_flow import (ASSIGNMENTS, OPERATORS, InterventionManager,
                             _notification, assigned_operator,
-                            build_factory_state, quick_answer, stream_quick,
-                            workflows_message)
+                            build_factory_state, calendar_event, quick_answer,
+                            stream_quick, workflows_message)
 from .schemas import (PinnReading, PlantSummary, SignedReading, TickResult,
                       TriageResult)
 from .state_store import StateStore
@@ -523,18 +523,32 @@ async def notify_test(machine_id: str = "RC-07", severity: str = "HIGH") -> dict
     if not configured:
         result["hint"] = ("Set TEAMS_WEBHOOK_URL in .env to a Teams Workflows "
                           "incoming-webhook URL, then call this again.")
-        return result
-    try:
-        import httpx
-        async with httpx.AsyncClient(timeout=8.0) as cli:
-            r = await cli.post(settings.teams_webhook_url, json=payload)
-        result["http_status"] = r.status_code
-        result["delivered"] = r.status_code < 300
-        if r.status_code >= 300:
-            result["response"] = r.text[:200]
-    except Exception as e:  # noqa: BLE001
-        result["delivered"] = False
-        result["error"] = f"{type(e).__name__}: {e}"
+    else:
+        try:
+            import httpx
+            async with httpx.AsyncClient(timeout=8.0) as cli:
+                r = await cli.post(settings.teams_webhook_url, json=payload)
+            result["http_status"] = r.status_code
+            result["delivered"] = r.status_code < 300
+            if r.status_code >= 300:
+                result["response"] = r.text[:200]
+        except Exception as e:  # noqa: BLE001
+            result["delivered"] = False
+            result["error"] = f"{type(e).__name__}: {e}"
+    # Calendar slot (second-flow variant). One-flow setups read the
+    # `praetor_event` key already embedded in would_send.
+    result["calendar_configured"] = bool(settings.calendar_webhook_url)
+    if settings.calendar_webhook_url:
+        try:
+            import httpx
+            ev = calendar_event(n)
+            async with httpx.AsyncClient(timeout=8.0) as cli:
+                r = await cli.post(settings.calendar_webhook_url, json=ev)
+            result["calendar_status"] = r.status_code
+            result["calendar_booked"] = r.status_code < 300
+        except Exception as e:  # noqa: BLE001
+            result["calendar_booked"] = False
+            result["calendar_error"] = f"{type(e).__name__}: {e}"
     return result
 
 
@@ -590,6 +604,7 @@ async def flow(limit: int = 100) -> dict:
         "intervention": ("ADVISORY", "OPERATOR"),
         "override": ("OPERATOR", "ADVISORY"),
         "notify": ("ADVISORY", "NOTIFY"),
+        "calendar": ("ADVISORY", "NOTIFY"),
         # NB: the loop logs "boss" and pipeline.boss_summary logs
         # "boss_summary" for the SAME hop — map only one or the feed doubles.
         "boss": ("ADVISORY", "BOSS"),
@@ -647,6 +662,8 @@ async def flow(limit: int = 100) -> dict:
         elif kind == "notify":
             label = f"paged {d.get('to', 'responsible')} · {d.get('severity', '')}"
             status = "warn"
+        elif kind == "calendar":
+            label = f"calendar slot booked — {d.get('to', 'responsible')}"
         else:  # boss / boss_summary
             label = "plant summary → boss agent"
         msgs.append({"at": ev["at"], "ago": _ago(ev["at"], now), "kind": kind,

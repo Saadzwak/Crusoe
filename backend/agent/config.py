@@ -101,6 +101,16 @@ class Settings:
     notify_cooldown_s: float = field(
         default_factory=lambda: float(os.environ.get("NOTIFY_COOLDOWN_S", "90"))
     )
+    # Optional SECOND Power Automate flow that books the intervention slot on
+    # the responsible operator's (later: the shared factory) calendar. The
+    # one-flow setup needs no URL here — the Teams payload already embeds
+    # `praetor_event` for a "Create event (V4)" action in the same flow.
+    calendar_webhook_url: str = field(
+        default_factory=lambda: os.environ.get("CALENDAR_WEBHOOK_URL", "").strip()
+    )
+    calendar_slot_min: int = field(
+        default_factory=lambda: int(os.environ.get("CALENDAR_SLOT_MIN", "45"))
+    )
     vlm_activity_delay_s: float = field(
         default_factory=lambda: float(os.environ.get("VLM_ACTIVITY_DELAY_S", "8"))
     )
