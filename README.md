@@ -24,6 +24,25 @@ signature}` — HMAC-SHA256 sur sérialisation canonique, stdlib pur. Testé **e
 conditions réelles** (les deux codes du même arbre) :
 [scripts/test_cross_layer_contract.py](scripts/test_cross_layer_contract.py).
 
+## Widgets d'inspection (CureWatch)
+
+Depuis le panneau d'une presse (vue Floor) :
+
+- **X-ray couche par couche** — double-clic sur une presse ou bouton
+  « Layer-by-layer X-ray » : jumeau MH-PINN (filaire) et modèle physique côte
+  à côte en vues éclatées synchronisées, 5 couches pelables (dôme → chauffe →
+  vessie → hydraulique → capteurs). Localisation de panne au niveau
+  **sous-système**, avec traçabilité affichée (limites vérifiées dépassées +
+  probabilités de mode du PINN + résidu). Une excursion **thermique** reste
+  volontairement **non localisée** (machine entière) : le jumeau détecte le
+  mode, pas l'emplacement de la source de chaleur. Plan de correction
+  auto-optimisant — l'agent applique, vérifie contre le jumeau, journalise ;
+  l'humain décide.
+- **Passeport numérique** — carte d'identité de la couche physique par presse :
+  schéma technique en élévation + état des composants en direct, graphe du
+  résidu physique PINN (mesuré vs bande prédite vs enveloppe, bande σ avec
+  seuil +3σ, verdict), sceau de custody HMAC en pied de carte.
+
 ## Démarrage rapide
 
 ```bash
