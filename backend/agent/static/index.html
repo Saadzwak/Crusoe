@@ -40,7 +40,7 @@
   <div style="height:58px;flex:0 0 58px;display:flex;align-items:center;justify-content:space-between;padding:0 18px 0 16px;background:#131B21;border-bottom:1px solid #223038;">
     <div style="display:flex;align-items:center;gap:12px;">
       <div style="width:34px;height:34px;border-radius:7px;background:#182530;border:1px solid #2a3a44;display:flex;align-items:center;justify-content:center;">
-        <div style="width:16px;height:16px;border:2.5px solid #8E2536;border-radius:50%;position:relative;"><div style="position:absolute;inset:3px;background:#C3C7CC;border-radius:50%;"></div></div>
+        <img src="/static/assets/prator_logo.jpeg" alt="PRAETOR" style="width:30px;height:30px;object-fit:cover;border-radius:6px;">
       </div>
       <div style="line-height:1.1;">
         <div style="font-size:14.5px;font-weight:700;letter-spacing:1.5px;">PRAETOR</div>
@@ -122,39 +122,39 @@
       </sc-if>
 
       <sc-if value="{{ isOverview }}" hint-placeholder-val="{{ true }}">
-        <div style="position:absolute;inset:0;overflow-y:auto;overflow-x:hidden;padding:30px 34px 46px;background:#F1F2EF;" data-screen-label="Plant overview">
-          <div style="font-size:11px;letter-spacing:1.8px;color:#8E2536;font-weight:700;">PLANT OVERVIEW</div>
-          <div style="font-size:24px;font-weight:700;margin-top:3px;margin-bottom:24px;color:#1B2227;">Curing Hall — all presses</div>
+        <div style="position:absolute;inset:0;overflow-y:auto;overflow-x:hidden;padding:30px 34px 46px;background:#0F1519;" data-screen-label="Plant overview">
+          <div style="font-size:11px;letter-spacing:2px;color:#C8556A;font-weight:700;">PLANT OVERVIEW</div>
+          <div style="font-size:24px;font-weight:700;margin-top:3px;margin-bottom:24px;color:#EAF1F4;letter-spacing:.3px;">Curing Hall — all presses</div>
 
           <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:18px;">
             <sc-for list="{{ kpis }}" as="k" hint-placeholder-count="4">
-              <div style="background:#ffffff;border:1px solid #E4E6E1;border-radius:14px;padding:18px 20px;box-shadow:0 1px 2px rgba(20,25,30,.04),0 6px 16px rgba(20,25,30,.05);">
-                <div style="font-size:11.5px;color:#6B7680;font-weight:500;">{{ k.label }}</div>
-                <div style="font-family:'IBM Plex Mono',monospace;font-size:29px;font-weight:600;margin-top:9px;color:#1B2227;">{{ k.value }}</div>
-                <div style="font-size:11px;color:#98A0A6;margin-top:4px;">{{ k.sub }}</div>
+              <div style="background:#141D24;border:1px solid #223038;border-radius:12px;padding:18px 20px;">
+                <div style="font-size:10.5px;letter-spacing:.6px;color:#7f96a1;font-weight:600;text-transform:uppercase;">{{ k.label }}</div>
+                <div style="font-family:'IBM Plex Mono',monospace;font-size:29px;font-weight:600;margin-top:9px;color:#EAF1F4;">{{ k.value }}</div>
+                <div style="font-size:11px;color:#8aa0ab;margin-top:4px;">{{ k.sub }}</div>
               </div>
             </sc-for>
           </div>
 
           <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:32px;">
-            <div style="background:#ffffff;border:1px solid #E4E6E1;border-radius:14px;padding:18px 20px;display:flex;align-items:center;justify-content:space-between;box-shadow:0 1px 2px rgba(20,25,30,.04),0 6px 16px rgba(20,25,30,.05);">
+            <div style="background:#141D24;border:1px solid #223038;border-radius:12px;padding:18px 20px;display:flex;align-items:center;justify-content:space-between;">
               <div style="display:flex;align-items:center;gap:12px;">
                 <span style="width:12px;height:12px;border-radius:50%;background:#1E9E62;box-shadow:0 0 0 4px #1E9E6220;"></span>
-                <div><div style="font-size:13px;color:#38424A;font-weight:600;">Healthy</div><div style="font-size:12px;color:#98A0A6;margin-top:1px;">Inside cure window</div></div>
+                <div><div style="font-size:13px;color:#EAF1F4;font-weight:600;">Healthy</div><div style="font-size:12px;color:#98A0A6;margin-top:1px;">Inside cure window</div></div>
               </div>
               <div style="font-family:'IBM Plex Mono',monospace;font-size:36px;font-weight:600;color:#1E9E62;">{{ greenCount }}</div>
             </div>
-            <div style="background:#ffffff;border:1px solid #E4E6E1;border-radius:14px;padding:18px 20px;display:flex;align-items:center;justify-content:space-between;box-shadow:0 1px 2px rgba(20,25,30,.04),0 6px 16px rgba(20,25,30,.05);">
+            <div style="background:#141D24;border:1px solid #223038;border-radius:12px;padding:18px 20px;display:flex;align-items:center;justify-content:space-between;">
               <div style="display:flex;align-items:center;gap:12px;">
                 <span style="width:12px;height:12px;border-radius:50%;background:#C6881B;box-shadow:0 0 0 4px #C6881B20;"></span>
-                <div><div style="font-size:13px;color:#38424A;font-weight:600;">Watch</div><div style="font-size:12px;color:#98A0A6;margin-top:1px;">Trending signal</div></div>
+                <div><div style="font-size:13px;color:#EAF1F4;font-weight:600;">Watch</div><div style="font-size:12px;color:#98A0A6;margin-top:1px;">Trending signal</div></div>
               </div>
               <div style="font-family:'IBM Plex Mono',monospace;font-size:36px;font-weight:600;color:#C6881B;">{{ yellowCount }}</div>
             </div>
-            <div style="background:#ffffff;border:1px solid #E4E6E1;border-radius:14px;padding:18px 20px;display:flex;align-items:center;justify-content:space-between;box-shadow:0 1px 2px rgba(20,25,30,.04),0 6px 16px rgba(20,25,30,.05);">
+            <div style="background:#141D24;border:1px solid #223038;border-radius:12px;padding:18px 20px;display:flex;align-items:center;justify-content:space-between;">
               <div style="display:flex;align-items:center;gap:12px;">
                 <span style="width:12px;height:12px;border-radius:50%;background:#CF3A34;box-shadow:0 0 0 4px #CF3A3420;"></span>
-                <div><div style="font-size:13px;color:#38424A;font-weight:600;">Active alert</div><div style="font-size:12px;color:#98A0A6;margin-top:1px;">Needs a decision</div></div>
+                <div><div style="font-size:13px;color:#EAF1F4;font-weight:600;">Active alert</div><div style="font-size:12px;color:#98A0A6;margin-top:1px;">Needs a decision</div></div>
               </div>
               <div style="font-family:'IBM Plex Mono',monospace;font-size:36px;font-weight:600;color:#CF3A34;">{{ redCount }}</div>
             </div>
@@ -163,16 +163,16 @@
           <div style="font-size:12px;letter-spacing:1.2px;color:#8A949C;font-weight:600;margin-bottom:14px;">ALL MACHINES</div>
           <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(226px,1fr));gap:14px;">
             <sc-for list="{{ overviewMachines }}" as="m" hint-placeholder-count="12">
-              <button onClick="{{ m.select }}" style="{{ m.cardStyle }}" style-hover="border-color:#CBB2B6;box-shadow:0 2px 5px rgba(20,25,30,.07),0 12px 28px rgba(20,25,30,.11);transform:translateY(-2px);">
+              <button onClick="{{ m.select }}" style="{{ m.cardStyle }}" style-hover="border-color:#3a4b55;transform:translateY(-1px);">
                 <div style="display:flex;align-items:center;justify-content:space-between;">
-                  <span style="font-family:'IBM Plex Mono',monospace;font-size:15px;font-weight:600;color:#1B2227;">{{ m.name }}</span>
+                  <span style="font-family:'IBM Plex Mono',monospace;font-size:15px;font-weight:600;color:#EAF1F4;">{{ m.name }}</span>
                   <span style="{{ m.lightPill }}">{{ m.statusLabel }}</span>
                 </div>
                 <div style="font-size:11.5px;color:#8A949C;margin-top:4px;">{{ m.type }}</div>
-                <div style="height:1px;background:#EDEEEA;margin:14px 0 12px;"></div>
+                <div style="height:1px;background:#223038;margin:14px 0 12px;"></div>
                 <div style="display:flex;align-items:flex-end;justify-content:space-between;">
                   <div><div style="font-size:10.5px;color:#98A0A6;">{{ m.metricLabel }}</div><div style="font-family:'IBM Plex Mono',monospace;font-size:17px;font-weight:600;margin-top:2px;color:{{ m.metricColorLight }};">{{ m.metricValue }}</div></div>
-                  <div style="text-align:right;"><div style="font-size:10.5px;color:#98A0A6;">Health</div><div style="font-family:'IBM Plex Mono',monospace;font-size:17px;font-weight:600;margin-top:2px;color:#3A444B;">{{ m.healthPct }}</div></div>
+                  <div style="text-align:right;"><div style="font-size:10.5px;color:#98A0A6;">Health</div><div style="font-family:'IBM Plex Mono',monospace;font-size:17px;font-weight:600;margin-top:2px;color:#c4d3da;">{{ m.healthPct }}</div></div>
                 </div>
               </button>
             </sc-for>
@@ -1163,10 +1163,10 @@ class Component extends DCLogic {
       metricLabel: metricThermal?'Mould temp':'Vibration',
       metricValue: metricThermal? m.readings.mould_temp_C.toFixed(1)+' °C' : m.readings.vibration_rms_mm_s.toFixed(1)+' mm/s',
       metricColor: meta.color==='#35C08A' ? '#c4d3da' : meta.color,
-      metricColorLight: meta.status==='green' ? '#3A444B' : dark,
-      cardStyle: { background:'#ffffff', border:'1px solid #E4E6E1', borderRadius:'14px',
-        padding:'16px 17px', cursor:'pointer', textAlign:'left', fontFamily:"'IBM Plex Sans',sans-serif", display:'block', width:'100%',
-        boxShadow:'0 1px 2px rgba(20,25,30,.04),0 6px 16px rgba(20,25,30,.05)', transition:'all .16s' },
+      metricColorLight: meta.status==='green' ? '#c4d3da' : meta.color,
+      cardStyle: { background:'#141D24', border:'1px solid #223038', borderLeft:'3px solid '+meta.color, borderRadius:'11px',
+        padding:'15px 16px', cursor:'pointer', textAlign:'left', fontFamily:"'IBM Plex Sans',sans-serif", display:'block', width:'100%',
+        transition:'all .16s' },
       _raw:m, _meta:meta
     };
   }
