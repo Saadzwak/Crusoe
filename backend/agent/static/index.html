@@ -33,6 +33,7 @@
     @keyframes cw-blink{0%,100%{opacity:.2;}50%{opacity:1;}}
     @keyframes cw-fade{from{opacity:0;}to{opacity:1;}}
     @keyframes cw-danger{0%,100%{box-shadow:0 0 0 0 rgba(240,82,75,.5);}50%{box-shadow:0 0 22px 4px rgba(240,82,75,.55);}}
+    @keyframes cw-dash{to{stroke-dashoffset:-28;}}
   </style>
 </helmet>
 <div style="display:flex;flex-direction:column;height:100vh;width:100%;background:#0F1519;color:#EAF1F4;font-family:'IBM Plex Sans',system-ui,sans-serif;overflow:hidden;">
@@ -274,8 +275,8 @@
       <sc-if value="{{ isFlow }}" hint-placeholder-val="{{ true }}">
         <div style="position:absolute;inset:0;overflow-y:auto;padding:26px 30px;background:#0F1519;" data-screen-label="Information flow">
           <div style="font-size:11px;letter-spacing:1.5px;color:#7f96a1;font-weight:600;">INFORMATION LAYER</div>
-          <div style="font-size:20px;font-weight:700;margin:2px 0 4px;">Message flow between stations — live</div>
-          <div style="font-size:12px;color:#8aa0ab;margin-bottom:14px;">Every card below is a real logged hop from the shared store's flight recorder — telemetry custody, triage, drafting, debate, jury, advisory, human decision, paging. Nothing simulated.</div>
+          <div style="font-size:20px;font-weight:700;margin:2px 0 4px;">Information flow across the line — live</div>
+          <div style="font-size:12px;color:#8aa0ab;margin-bottom:14px;">Machines at the bottom, agent stations in the middle, boss &amp; humans on top. An edge lights up only when that hop REALLY happened (shared-store flight recorder) — nothing simulated.</div>
           <div style="{{ flowModeStyle }}">{{ flowModeLabel }}</div>
           <sc-if value="{{ flowHasBlocked }}" hint-placeholder-val="{{ false }}">
             <div style="display:flex;align-items:center;gap:10px;background:#F0524B18;border:1.5px solid #F0524B;border-radius:10px;padding:11px 14px;margin-bottom:16px;">
@@ -287,33 +288,89 @@
             </div>
           </sc-if>
 
-          <div style="font-size:10.5px;letter-spacing:1.2px;color:#5f7682;font-weight:700;margin-bottom:8px;">PIPELINE STATIONS</div>
-          <div style="display:flex;align-items:center;gap:6px;overflow-x:auto;padding-bottom:10px;margin-bottom:18px;">
-            <sc-for list="{{ flowNodes }}" as="n" hint-placeholder-count="10">
-              <span style="{{ n.arrowStyle }}">&#8594;</span>
-              <div style="{{ n.boxStyle }}">
-                <div style="display:flex;align-items:center;gap:7px;">
-                  <div style="{{ n.dotStyle }}"></div>
-                  <span style="font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:700;color:#EAF1F4;">{{ n.name }}</span>
-                  <span style="font-family:'IBM Plex Mono',monospace;font-size:10.5px;color:#5f7682;">{{ n.count }}</span>
-                </div>
-                <div style="font-size:9.5px;color:#7f96a1;margin-top:4px;white-space:nowrap;">{{ n.caption }}</div>
-              </div>
-            </sc-for>
+          <div style="background:#10171d;border:1px solid #1c2830;border-radius:14px;padding:10px 12px 4px;margin-bottom:8px;">
+          <svg viewBox="0 0 1000 526" style="width:100%;max-width:1120px;display:block;margin:0 auto;" xmlns="http://www.w3.org/2000/svg">
+            <line x1="90" y1="448" x2="430" y2="376" style="{{ eM0 }}"></line>
+            <line x1="250" y1="448" x2="458" y2="376" style="{{ eM1 }}"></line>
+            <line x1="410" y1="448" x2="486" y2="376" style="{{ eM2 }}"></line>
+            <line x1="570" y1="448" x2="514" y2="376" style="{{ eM3 }}"></line>
+            <line x1="730" y1="448" x2="542" y2="376" style="{{ eM4 }}"></line>
+            <line x1="890" y1="448" x2="570" y2="376" style="{{ eM5 }}"></line>
+            <line x1="440" y1="330" x2="185" y2="256" style="{{ eGT }}"></line>
+            <line x1="234" y1="233" x2="271" y2="233" style="{{ eTD }}"></line>
+            <line x1="399" y1="233" x2="436" y2="233" style="{{ eDD }}"></line>
+            <line x1="564" y1="233" x2="601" y2="233" style="{{ eDJ }}"></line>
+            <line x1="729" y1="233" x2="766" y2="233" style="{{ eJA }}"></line>
+            <line x1="800" y1="210" x2="540" y2="116" style="{{ eAB }}"></line>
+            <line x1="818" y1="210" x2="760" y2="116" style="{{ eAO }}"></line>
+            <line x1="790" y1="116" x2="846" y2="210" style="{{ eOA }}"></line>
+            <line x1="862" y1="210" x2="912" y2="116" style="{{ eAN }}"></line>
+
+            <rect x="436" y="70" width="128" height="46" rx="9" style="{{ nBOSS }}"></rect>
+            <text x="500" y="90" text-anchor="middle" style="font-family:'IBM Plex Mono',monospace;font-size:12.5px;font-weight:700;fill:#EAF1F4;">BOSS</text>
+            <text x="500" y="106" text-anchor="middle" style="font-size:9px;fill:#7f96a1;">plant summary</text>
+            <rect x="698" y="70" width="128" height="46" rx="9" style="{{ nOPERATOR }}"></rect>
+            <text x="762" y="90" text-anchor="middle" style="font-family:'IBM Plex Mono',monospace;font-size:12.5px;font-weight:700;fill:#EAF1F4;">OPERATOR</text>
+            <text x="762" y="106" text-anchor="middle" style="font-size:9px;fill:#7f96a1;">human decision</text>
+            <rect x="856" y="70" width="128" height="46" rx="9" style="{{ nNOTIFY }}"></rect>
+            <text x="920" y="90" text-anchor="middle" style="font-family:'IBM Plex Mono',monospace;font-size:12.5px;font-weight:700;fill:#EAF1F4;">NOTIFY</text>
+            <text x="920" y="106" text-anchor="middle" style="font-size:9px;fill:#7f96a1;">Teams page</text>
+
+            <rect x="106" y="210" width="128" height="46" rx="9" style="{{ nTRIAGE }}"></rect>
+            <text x="170" y="230" text-anchor="middle" style="font-family:'IBM Plex Mono',monospace;font-size:12.5px;font-weight:700;fill:#EAF1F4;">TRIAGE</text>
+            <text x="170" y="246" text-anchor="middle" style="font-size:9px;fill:#7f96a1;">3-tier screen</text>
+            <rect x="271" y="210" width="128" height="46" rx="9" style="{{ nDRAFT }}"></rect>
+            <text x="335" y="230" text-anchor="middle" style="font-family:'IBM Plex Mono',monospace;font-size:12.5px;font-weight:700;fill:#EAF1F4;">DRAFT</text>
+            <text x="335" y="246" text-anchor="middle" style="font-size:9px;fill:#7f96a1;">line agent</text>
+            <rect x="436" y="210" width="128" height="46" rx="9" style="{{ nDEBATE }}"></rect>
+            <text x="500" y="230" text-anchor="middle" style="font-family:'IBM Plex Mono',monospace;font-size:12.5px;font-weight:700;fill:#EAF1F4;">DEBATE</text>
+            <text x="500" y="246" text-anchor="middle" style="font-size:9px;fill:#7f96a1;">advocate vs skeptic</text>
+            <rect x="601" y="210" width="128" height="46" rx="9" style="{{ nJURY }}"></rect>
+            <text x="665" y="230" text-anchor="middle" style="font-family:'IBM Plex Mono',monospace;font-size:12.5px;font-weight:700;fill:#EAF1F4;">JURY</text>
+            <text x="665" y="246" text-anchor="middle" style="font-size:9px;fill:#7f96a1;">quality gate</text>
+            <rect x="766" y="210" width="128" height="46" rx="9" style="{{ nADVISORY }}"></rect>
+            <text x="830" y="230" text-anchor="middle" style="font-family:'IBM Plex Mono',monospace;font-size:12.5px;font-weight:700;fill:#EAF1F4;">ADVISORY</text>
+            <text x="830" y="246" text-anchor="middle" style="font-size:9px;fill:#7f96a1;">shared store</text>
+
+            <rect x="415" y="330" width="170" height="46" rx="9" style="{{ nGATE }}"></rect>
+            <text x="500" y="350" text-anchor="middle" style="font-family:'IBM Plex Mono',monospace;font-size:12.5px;font-weight:700;fill:#EAF1F4;">HMAC GATE</text>
+            <text x="500" y="366" text-anchor="middle" style="font-size:9px;fill:#7f96a1;">custody check on every reading</text>
+
+            <rect x="22" y="448" width="136" height="58" rx="10" style="{{ mBox0 }}"></rect>
+            <circle cx="44" cy="470" r="4.5" style="{{ mDot0 }}"></circle>
+            <text x="56" y="474" style="font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:700;fill:#EAF1F4;">CP-07</text>
+            <text x="90" y="493" text-anchor="middle" style="font-size:9px;fill:#7f96a1;">{{ mAgo0 }}</text>
+            <rect x="182" y="448" width="136" height="58" rx="10" style="{{ mBox1 }}"></rect>
+            <circle cx="204" cy="470" r="4.5" style="{{ mDot1 }}"></circle>
+            <text x="216" y="474" style="font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:700;fill:#EAF1F4;">CP-01</text>
+            <text x="250" y="493" text-anchor="middle" style="font-size:9px;fill:#7f96a1;">{{ mAgo1 }}</text>
+            <rect x="342" y="448" width="136" height="58" rx="10" style="{{ mBox2 }}"></rect>
+            <circle cx="364" cy="470" r="4.5" style="{{ mDot2 }}"></circle>
+            <text x="376" y="474" style="font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:700;fill:#EAF1F4;">CP-03</text>
+            <text x="410" y="493" text-anchor="middle" style="font-size:9px;fill:#7f96a1;">{{ mAgo2 }}</text>
+            <rect x="502" y="448" width="136" height="58" rx="10" style="{{ mBox3 }}"></rect>
+            <circle cx="524" cy="470" r="4.5" style="{{ mDot3 }}"></circle>
+            <text x="536" y="474" style="font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:700;fill:#EAF1F4;">CP-10</text>
+            <text x="570" y="493" text-anchor="middle" style="font-size:9px;fill:#7f96a1;">{{ mAgo3 }}</text>
+            <rect x="662" y="448" width="136" height="58" rx="10" style="{{ mBox4 }}"></rect>
+            <circle cx="684" cy="470" r="4.5" style="{{ mDot4 }}"></circle>
+            <text x="696" y="474" style="font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:700;fill:#EAF1F4;">CL-03</text>
+            <text x="730" y="493" text-anchor="middle" style="font-size:9px;fill:#7f96a1;">{{ mAgo4 }}</text>
+            <rect x="822" y="448" width="136" height="58" rx="10" style="{{ mBox5 }}"></rect>
+            <circle cx="844" cy="470" r="4.5" style="{{ mDot5 }}"></circle>
+            <text x="856" y="474" style="font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:700;fill:#EAF1F4;">MX-02</text>
+            <text x="890" y="493" text-anchor="middle" style="font-size:9px;fill:#7f96a1;">{{ mAgo5 }}</text>
+          </svg>
+          <div style="display:flex;gap:16px;align-items:center;padding:6px 6px 8px;flex-wrap:wrap;">
+            <span style="font-size:9.5px;letter-spacing:.8px;color:#5f7682;font-weight:700;">LEGEND</span>
+            <span style="display:flex;align-items:center;gap:5px;font-size:10.5px;color:#8aa0ab;"><span style="width:14px;height:2px;background:#35C08A;display:inline-block;"></span>message OK</span>
+            <span style="display:flex;align-items:center;gap:5px;font-size:10.5px;color:#8aa0ab;"><span style="width:14px;height:2px;background:#F0B23E;display:inline-block;"></span>HIGH / escalated</span>
+            <span style="display:flex;align-items:center;gap:5px;font-size:10.5px;color:#8aa0ab;"><span style="width:14px;height:2px;background:#F0524B;display:inline-block;"></span>blocked / rejected</span>
+            <span style="display:flex;align-items:center;gap:5px;font-size:10.5px;color:#8aa0ab;"><span style="width:14px;height:2px;background:#26343d;display:inline-block;"></span>idle</span>
+          </div>
           </div>
 
-          <div style="font-size:10.5px;letter-spacing:1.2px;color:#5f7682;font-weight:700;margin-bottom:8px;">TELEMETRY IN — LAST VERIFIED READING PER MACHINE</div>
-          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:20px;">
-            <sc-for list="{{ flowSources }}" as="s" hint-placeholder-count="6">
-              <div style="{{ s.chipStyle }}">
-                <div style="{{ s.dotStyle }}"></div>
-                <span style="font-family:'IBM Plex Mono',monospace;font-size:11.5px;color:#c4d3da;">{{ s.name }}</span>
-                <span style="font-size:10.5px;color:#5f7682;">{{ s.ago }}</span>
-              </div>
-            </sc-for>
-          </div>
-
-          <div style="font-size:10.5px;letter-spacing:1.2px;color:#5f7682;font-weight:700;margin-bottom:8px;">AGENT MESSAGES — NEWEST FIRST</div>
+          <div style="font-size:10.5px;letter-spacing:1.2px;color:#5f7682;font-weight:700;margin:14px 0 8px;">MESSAGE LOG — NEWEST FIRST (trace any hop back to its source)</div>
           <sc-if value="{{ flowFeedEmpty }}" hint-placeholder-val="{{ false }}">
             <div style="color:#6f8792;font-size:13px;padding:14px 0;">No agent traffic right now — the LLM layer engages when telemetry leaves the envelope (run a fault from the Floor view to watch messages travel).</div>
           </sc-if>
@@ -465,7 +522,7 @@ class Component extends DCLogic {
     this.state = {
       activeView: 'floor',
       liveOk: null, live: null, liveMachines: [], liveEpoch: 0, history: [],
-      role: 'operator', flow: null,
+      role: 'operator', flow: null, chatByRole: {},
       faultMode: 'none',
       selectedId: null,
       drawerOpen: false,
@@ -623,6 +680,30 @@ class Component extends DCLogic {
     return {color:'#35C08A', state:'In range'};
   }
   healAll(){ this.baseMachines = this.makeMachines(true); }
+  // Machine UI status = the WORST of long-term health (PINN), instantaneous
+  // limit conformity, and any pending advisory. The trained model can rate
+  // long-term health green while a signal is already out of its verified
+  // band (vibration in zone C at mid-life, say) — the badge must not say
+  // "Healthy" next to an orange tile. Honest composite, no data touched.
+  uiStatus(m){
+    // NB: written `(m || {}).health` so the global statusMeta->uiStatus
+    // rewrite below cannot match THIS internal call (self-recursion guard).
+    const meta = this.statusMeta((m || {}).health);
+    let lvl = meta.status==='green' ? 0 : meta.status==='yellow' ? 1 : 2;
+    const spec = m.spec || this.curingSpec();
+    const r = m.readings || {};
+    ['mould_temp_C','pressure_bar','vibration_rms_mm_s','coil_power_kW'].forEach(k=>{
+      const e = this.evalLimit(k, r[k], spec);
+      if(e.color==='#F0524B') lvl = 2;
+      else if(e.color==='#F0B23E') lvl = Math.max(lvl, 1);
+    });
+    const a = m.liveAdvisory;
+    if(a){ if(a.severity==='CRITICAL') lvl = 2;
+           else if(a.severity==='HIGH') lvl = Math.max(lvl, 1); }
+    return lvl===2 ? {status:'red', color:'#F0524B', label:'Alert'}
+         : lvl===1 ? {status:'yellow', color:'#F0B23E', label:'Watch'}
+         : {status:'green', color:'#35C08A', label:'Healthy'};
+  }
   deriveHistory(h){
     const accepted = h.decision==='accepted';
     const sev = (h.severity||'').toUpperCase();
@@ -644,44 +725,51 @@ class Component extends DCLogic {
   // Nothing here is simulated: at rest you see telemetry+boss only, because
   // the agent layer genuinely stands by until a fault engages it.
   deriveFlow(){
+    // Topology map (manager view): BOSS on top, agent stations in the middle,
+    // machines at the bottom. Every edge/node style below is derived from the
+    // REAL flight-recorder messages — an edge animates only when that hop
+    // actually happened in the last few seconds.
     const fl = this.state.flow || {};
     const msgs = fl.messages || [];                 // newest first
     const now = fl.at || (Date.now()/1000);
-    const NODES = ['PINN','GATE','TRIAGE','DRAFT','DEBATE','JURY','ADVISORY','OPERATOR','NOTIFY','BOSS'];
-    const CAPT = {PINN:'physical twin', GATE:'HMAC custody', TRIAGE:'3-tier screen',
-      DRAFT:'line agent', DEBATE:'advocate vs skeptic', JURY:'quality gate',
-      ADVISORY:'shared store', OPERATOR:'human decision', NOTIFY:'Teams page', BOSS:'plant summary'};
     const color = s => s==='blocked' ? '#F0524B' : s==='warn' ? '#F0B23E' : s==='ok' ? '#35C08A' : '#39505c';
-    const stat = {}, cnt = {};
-    NODES.forEach(n=>{ stat[n]={s:'idle', at:0}; cnt[n]=0; });
+    const MIDX = {'CP-07':0,'CP-01':1,'CP-03':2,'CP-10':3,'CL-03':4,'MX-02':5};
+    const vars = {};
+    const idleEdge = {stroke:'#26343d', strokeWidth:1.3, opacity:.9};
+    ['eM0','eM1','eM2','eM3','eM4','eM5','eGT','eTD','eDD','eDJ','eJA','eAB','eAO','eOA','eAN']
+      .forEach(k=>{ vars[k]=idleEdge; });
+    const NODEK = ['GATE','TRIAGE','DRAFT','DEBATE','JURY','ADVISORY','BOSS','OPERATOR','NOTIFY'];
+    const nstat = {}; NODEK.forEach(n=>{ nstat[n]={s:'idle',at:0}; });
+    for(let i=0;i<6;i++){ vars['mDot'+i]={fill:'#39505c'}; vars['mAgo'+i]='\u2014';
+      vars['mBox'+i]={fill:'#141D24', stroke:'#223038', strokeWidth:1.2}; }
+    const liveEdge = st => ({stroke:color(st), strokeWidth:2.4, strokeDasharray:'7 7',
+      animation:'cw-dash .8s linear infinite', opacity:1});
+    const EK = {triage:['eGT'], debate:['eTD','eDD'], jury:['eDJ'], advisory:['eJA'],
+      boss:['eAB'], intervention:['eAO'], override:['eOA'], notify:['eAN'],
+      hmac_rejected:[], reading_rejected:['eGT'], pipeline_error:['eTD']};
+    const seenM = {};
     msgs.forEach(m=>{
       const age = now - (m.at||0);
       [m.from, m.to].forEach(n=>{
-        if(cnt[n]===undefined) return;
-        if(age <= 60) cnt[n]++;
-        if(age <= 25 && (m.at||0) > stat[n].at) stat[n] = {s:m.status, at:m.at};
+        if(nstat[n]!==undefined && age<=25 && (m.at||0)>nstat[n].at) nstat[n]={s:m.status,at:m.at};
       });
+      if(m.kind==='tick'){
+        const i = MIDX[m.machine];
+        if(i!==undefined && !seenM[i]){ seenM[i]=1;
+          vars['mDot'+i]={fill:color(m.status)}; vars['mAgo'+i]=m.ago;
+          vars['mBox'+i]={fill:'#141D24', stroke:(m.status==='ok'?'#2f6b52':color(m.status)), strokeWidth:1.4};
+          if(age<=6) vars['eM'+i]=liveEdge(m.status);
+        }
+        return;
+      }
+      if(age<=7) (EK[m.kind]||[]).forEach(k=>{ if(vars[k]===idleEdge) vars[k]=liveEdge(m.status); });
     });
-    const nodes = NODES.map((n,i)=>({ name:n, caption:CAPT[n], count:String(cnt[n]),
-      arrowStyle:{display:(i?'block':'none'), color:'#39505c', fontSize:'15px', flex:'0 0 auto'},
-      dotStyle:{width:'8px',height:'8px',borderRadius:'50%',flex:'0 0 auto',
-        background:color(stat[n].s),
-        boxShadow: stat[n].s!=='idle' ? '0 0 9px '+color(stat[n].s) : 'none',
-        transition:'background .3s, box-shadow .3s'},
-      boxStyle:{background:'#141D24',
-        border:'1px solid '+(stat[n].s==='blocked'?'#F0524B':stat[n].s==='warn'?'#6b5322':'#223038'),
-        borderRadius:'10px', padding:'10px 13px', minWidth:'108px', flex:'0 0 auto',
-        transition:'border-color .3s'} }));
-    // telemetry strip — latest verified reading per machine (the at-rest flow)
-    const tickBy = {};
-    msgs.forEach(m=>{ if(m.kind==='tick' && m.machine && !tickBy[m.machine]) tickBy[m.machine]=m; });
-    const sources = Object.keys(tickBy).sort().map(k=>{ const m=tickBy[k]; return {
-      name:k, ago:m.ago,
-      dotStyle:{width:'7px',height:'7px',borderRadius:'50%',background:color(m.status),flex:'0 0 auto'},
-      chipStyle:{display:'flex',alignItems:'center',gap:'7px',background:'#141D24',
-        border:'1px solid #223038',borderRadius:'8px',padding:'7px 11px',flex:'0 0 auto'} }; });
-    // feed — every non-telemetry hop, newest first
-    const feed = msgs.filter(m=>m.kind!=='tick').slice(0,12).map(m=>({
+    NODEK.forEach(n=>{ const s=nstat[n].s;
+      vars['n'+n]={fill:'#141D24',
+        stroke:(s==='blocked'?'#F0524B': s==='warn'?'#F0B23E': s==='ok'?'#2f6b52':'#223038'),
+        strokeWidth:(s==='idle'?1.2:1.9)}; });
+    // message log — every non-telemetry hop, newest first (trace errors back)
+    const feed = msgs.filter(m=>m.kind!=='tick').slice(0,14).map(m=>({
       ago:m.ago, machine:m.machine||'\u2014', label:m.label,
       route:m.from+' \u2192 '+m.to,
       dotStyle:{width:'8px',height:'8px',borderRadius:'50%',background:color(m.status),flex:'0 0 auto'},
@@ -690,11 +778,11 @@ class Component extends DCLogic {
         borderRadius:'10px',padding:'10px 13px',marginBottom:'8px'} }));
     const blocked = msgs.find(m=>m.status==='blocked' && (now-(m.at||0))<90) || null;
     const active = !!fl.agent_layer_active;
-    return { nodes, sources, feed, feedEmpty: !feed.length,
+    return { vars, feed, feedEmpty: !feed.length,
       modeLabel: active ? 'AGENT LAYER ACTIVE \u2014 messages in flight'
                         : 'TELEMETRY ONLY \u2014 agent layer on standby (no anomaly)',
       modeStyle:{display:'inline-block',fontSize:'10.5px',fontWeight:700,letterSpacing:'.8px',
-        padding:'5px 11px',borderRadius:'14px',marginBottom:'18px',
+        padding:'5px 11px',borderRadius:'14px',marginBottom:'16px',
         color: active?'#F0B23E':'#4fd39e',
         border:'1px solid '+(active?'#6b5322':'#2b5c46'),
         background: active?'#251f10':'#12251d'},
@@ -737,12 +825,13 @@ class Component extends DCLogic {
   recFor(m){
     if(m.id===this.FOCAL && m.liveAdvisory){
       const a = m.liveAdvisory;
-      const sev = (a.severity==='CRITICAL'||a.severity==='HIGH') ? 'red' : a.severity==='WATCH' ? 'yellow' : 'green';
+      const sev = a.severity==='CRITICAL' ? 'red' : (a.severity==='HIGH'||a.severity==='WATCH') ? 'yellow' : 'green';
       const col = sev==='red' ? '#F0524B' : sev==='yellow' ? '#F0B23E' : '#35C08A';
+      const disp = s => String(s||'').split('RC-07').join(m.id);
       return { severity:sev, color:col, liveId:a.id,
-        title:'LIVE \u00b7 '+a.title,
-        detail:(a.message||'')+(a.justification ? ' \u2014 '+a.justification : ''),
-        acceptLabel:'Accept \u00b7 '+(a.recommended_action||'Apply recommendation'),
+        title:'LIVE \u00b7 '+disp(a.title),
+        detail:disp(a.message||'')+(a.justification ? ' \u2014 '+disp(a.justification) : ''),
+        acceptLabel:'Accept \u00b7 '+disp(a.recommended_action||'Apply recommendation'),
         overrideLabel:'Override \u00b7 Keep running' };
     }
     const f = this.state.faultMode;
@@ -758,7 +847,7 @@ class Component extends DCLogic {
         detail:'Vibration RMS has crossed 6.5 mm/s (ISO 10816 zone C). Spectral energy is concentrating at the bearing outer-race frequency. The twin estimates ~1,900 cycles before zone D, where damage accelerates.',
         acceptLabel:'Accept · Schedule service', overrideLabel:'Override · Monitor only' };
     }
-    const meta = this.statusMeta(m.health);
+    const meta = this.uiStatus(m);
     if(meta.status==='yellow'){
       return { severity:'yellow', color:'#F0B23E',
         title:'Monitor — early vibration trend',
@@ -776,7 +865,7 @@ class Component extends DCLogic {
     const mk = (name,p)=>({name, p});
     if(m.id===this.FOCAL && f==='thermal' && m.health<0.6) return [mk('Zone-3 heater element drift',0.63),mk('Thermocouple fault',0.19),mk('Bladder wear',0.09),mk('Bearing wear',0.05)];
     if(m.id===this.FOCAL && f==='bearing' && m.health<0.6) return [mk('Bearing outer-race wear',0.58),mk('Lubrication loss',0.21),mk('Shaft misalignment',0.11),mk('Seal wear',0.06)];
-    if(this.statusMeta(m.health).status==='yellow') return [mk('Bearing wear',0.17),mk('Bladder wear',0.09),mk('Heater drift',0.05),mk('Seal wear',0.04)];
+    if(this.uiStatus(m).status==='yellow') return [mk('Bearing wear',0.17),mk('Bladder wear',0.09),mk('Heater drift',0.05),mk('Seal wear',0.04)];
     return [mk('Bladder wear',0.06),mk('Bearing wear',0.05),mk('Heater drift',0.03),mk('Seal wear',0.02)];
   }
 
@@ -859,7 +948,7 @@ class Component extends DCLogic {
     this._pickables = [];
     const hallPaint = M.paint(0x45524b);
     this.currentMachines().forEach(m=>{
-      const meta = this.statusMeta(m.health);
+      const meta = this.uiStatus(m);
       const built = this.buildPress(M, hallPaint, new THREE.Color(meta.color));
       const g = built.group;
       g.position.set(m.x, 0, m.z);
@@ -948,7 +1037,7 @@ class Component extends DCLogic {
     this.currentMachines().forEach(m=>{
       const o = this.machineMeshes[m.id];
       if(!o) return;
-      const meta = this.statusMeta(m.health);
+      const meta = this.uiStatus(m);
       o.meta = meta;
       const col = new window.THREE.Color(meta.color);
       o.beacon.color.copy(col); o.beacon.emissive.copy(col);
@@ -1291,7 +1380,7 @@ class Component extends DCLogic {
   statusDark(status){ return status==='green' ? '#1E9E62' : status==='yellow' ? '#C6881B' : '#CF3A34'; }
 
   deriveMachine(m){
-    const meta = this.statusMeta(m.health);
+    const meta = this.uiStatus(m);
     const dark = this.statusDark(meta.status);
     const metricThermal = this.state.faultMode==='thermal' && m.id===this.FOCAL;
     return {
@@ -1317,7 +1406,7 @@ class Component extends DCLogic {
     if(!id) return null;
     const m = this.currentMachines().find(x=>x.id===id);
     if(!m) return null;
-    const meta = this.statusMeta(m.health);
+    const meta = this.uiStatus(m);
     const r = m.readings;
     const spec = m.spec || this.curingSpec();
     const et=this.evalLimit('mould_temp_C', r.mould_temp_C, spec);
@@ -1382,14 +1471,24 @@ class Component extends DCLogic {
   renderVals(){
     const cur = this.currentMachines();
     const counts = {green:0,yellow:0,red:0};
-    cur.forEach(m=> counts[this.statusMeta(m.health).status]++);
+    cur.forEach(m=> counts[this.uiStatus(m).status]++);
     const view = this.state.activeView;
     // role switch: the MANAGER view adds the information-flow map (our
     // information-layer value-add); operators keep the floor screens.
+    // Each role keeps its OWN chat thread (stashed in chatByRole and
+    // restored on the way back — no shared conversation between roles).
     const isManager = (this.state.role||'operator')==='manager';
-    const setRoleOperator = ()=>this.setState({role:'operator',
-      activeView: this.state.activeView==='flow' ? 'floor' : this.state.activeView});
-    const setRoleManager = ()=>this.setState({role:'manager', activeView:'flow'});
+    const _swapChat = (newRole)=>{
+      const byRole = Object.assign({}, this.state.chatByRole||{});
+      byRole[this.state.role||'operator'] = this.state.messages;
+      const seeded = byRole[newRole] || (newRole==='manager'
+        ? [{role:'agent', text:'Manager channel. Same line agent, same live data - ask about the line, past decisions, or the information flow. This thread is separate from the operator chat.'}]
+        : this.state.messages);
+      return {chatByRole: byRole, messages: seeded};
+    };
+    const setRoleOperator = ()=>this.setState(Object.assign(_swapChat('operator'), {role:'operator',
+      activeView: this.state.activeView==='flow' ? 'floor' : this.state.activeView}));
+    const setRoleManager = ()=>this.setState(Object.assign(_swapChat('manager'), {role:'manager', activeView:'flow'}));
     const _roleBtn = on => "padding:6px 12px;font-size:10px;font-weight:700;letter-spacing:.8px;border:none;cursor:pointer;font-family:'IBM Plex Sans',sans-serif;"
       + (on ? 'background:#8E2536;color:#fff;' : 'background:#182530;color:#7f96a1;');
     const roleOpStyle = _roleBtn(!isManager), roleMgrStyle = _roleBtn(isManager);
@@ -1428,9 +1527,10 @@ class Component extends DCLogic {
 
     const redCount = counts.red;
     return {
+      ...flowD.vars,
       isManager, setRoleOperator, setRoleManager, roleOpStyle, roleMgrStyle,
       goFlow, flowNavStyle,
-      flowNodes: flowD.nodes, flowSources: flowD.sources, flowFeed: flowD.feed,
+      flowFeed: flowD.feed,
       flowFeedEmpty: flowD.feedEmpty, flowModeLabel: flowD.modeLabel,
       flowModeStyle: flowD.modeStyle, flowHasBlocked: flowD.hasBlocked,
       flowBlockedLabel: flowD.blockedLabel,
@@ -1448,10 +1548,10 @@ class Component extends DCLogic {
       overviewNavStyle: this.navStyle(view==='overview'),
       chatNavStyle: this.navStyle(view==='chat'),
 
-      alertText: redCount>0 ? (redCount+' active alert'+(redCount>1?'s':'')) : 'All systems nominal',
+      alertText: redCount>0 ? (redCount+' active alert'+(redCount>1?'s':'')) : counts.yellow>0 ? (counts.yellow+' to watch') : 'All systems nominal',
       alertPillStyle: { display:'flex', alignItems:'center', gap:'8px', fontSize:'12px', fontWeight:600, padding:'6px 12px', borderRadius:'20px',
-        color: redCount>0?'#F0524B':'#35C08A', background: redCount>0?'#F0524B1e':'#35C08A18', border:'1px solid '+(redCount>0?'#F0524B55':'#35C08A44') },
-      alertDotStyle: { width:'8px', height:'8px', borderRadius:'50%', background: redCount>0?'#F0524B':'#35C08A',
+        color: redCount>0?'#F0524B':counts.yellow>0?'#F0B23E':'#35C08A', background: (redCount>0?'#F0524B':counts.yellow>0?'#F0B23E':'#35C08A')+'1e', border:'1px solid '+(redCount>0?'#F0524B55':counts.yellow>0?'#F0B23E55':'#35C08A44') },
+      alertDotStyle: { width:'8px', height:'8px', borderRadius:'50%', background: redCount>0?'#F0524B':counts.yellow>0?'#F0B23E':'#35C08A',
         animation: redCount>0?'cw-pulse 1.4s infinite':'none' },
 
       greenCount:counts.green, yellowCount:counts.yellow, redCount:counts.red,

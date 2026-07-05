@@ -199,7 +199,16 @@ class TelemetrySource:
             # 30 cycles/epoch still walks the SAME real degradation
             # trajectory, just faster (~5 epochs to end of life).
             eff = max(0, epoch - self._fault_epoch0)
-            cycle = min(40 + 30 * eff, self._max_cycle - 1)
+            # Two DIFFERENT dramas, so the demo has an orange path and a red
+            # path and never surprises the presenter:
+            #   thermal — runs to end of life: temp crosses 210 °C at ~eff 3,
+            #             health collapses, CRITICAL, red pulsing card.
+            #   bearing — plateaus mid-trajectory (cycle 106): vibration holds
+            #             in ISO zone C (~4 mm/s, tier-1 "surveillance"),
+            #             health ~0.5 → WATCH/HIGH, ORANGE — never zone D red.
+            _cap = (min(106, self._max_cycle - 1)
+                    if self.fault_kind == "bearing" else self._max_cycle - 1)
+            cycle = min(40 + 30 * eff, _cap)
             heartbeat = False
         else:
             phase = epoch % 16
@@ -246,7 +255,11 @@ class TelemetrySource:
 
         signals = {
             "mould_temp_C": _safe_round(193.0 + 3.0 * w2 + 22.0 * f_temp ** 2.4 + n_temp),
-            "coil_power_kW": _safe_round(_lin(s4, 1398.0, 1428.0, 60.0, 92.0) + n_pow),
+            # 62 kW floor of the stand-in map: at early cycles s4 sits at the
+            # bottom of its range and the ±1.4 kW heartbeat wobble was dipping
+            # the reading under the 60 kW operating floor — a healthy machine
+            # must not idle 2% below its own envelope.
+            "coil_power_kW": _safe_round(_lin(s4, 1398.0, 1428.0, 62.0, 92.0) + n_pow),
             "vibration_rms_mm_s": _safe_round(0.85 + 0.2 * w11 + 8.2 * f_vib ** 2.1 + n_vib),
             "pressure_bar": _safe_round(17.6 - 0.4 * w15 - 2.9 * frac ** 1.8),
             "cycle_min": _safe_round(12.4 + 0.3 * w2 + 18.8 * frac ** 3.2, 1),
@@ -265,15 +278,23 @@ class TelemetrySource:
                     f"remaining life falling.")
             modes = {("thermal_runaway" if self.fault_kind == "thermal"
                       else "bearing_wearout"): 0.35}
-        else:
+        elif self.fault_kind != "bearing":   # thermal / hdf: run-to-failure red
             driver = ("mould temperature" if self.fault_kind == "thermal"
-                      else "vibration")
-            note = (f"CRITICAL drift on press RC-07: {driver} climbing toward the "
-                    f"failure envelope, remaining life down to {int(rul)} cycles "
-                    f"— imminent {self.fault_kind} failure suspected.")
-            modes = ({"thermal_runaway": 0.65, "bearing_wearout": 0.2}
-                     if self.fault_kind == "thermal"
-                     else {"bearing_wearout": 0.65, "thermal_runaway": 0.25})
+                      else "thermal margin")
+            note = (f"CRITICAL drift on press RC-07: {driver} climbing "
+                    f"toward the failure envelope, remaining life down to "
+                    f"{int(rul)} cycles — imminent {self.fault_kind} failure "
+                    f"suspected.")
+            modes = {"thermal_runaway": 0.65, "bearing_wearout": 0.2}
+        else:
+            # bearing = the ORANGE scenario: sustained zone-C vibration,
+            # serious but not end-of-life. Wording carries HIGH trigger words
+            # ("drift") and deliberately NO critical/imminent/failure words —
+            # severity must stay HIGH, never CRITICAL (mock-keyword contract).
+            note = ("Sustained vibration drift on press RC-07: bearing wear "
+                    "suspected, levels holding in ISO zone C — plan a bearing "
+                    "inspection at the next stop.")
+            modes = {"bearing_wearout": 0.55, "thermal_runaway": 0.1}
 
         if model_modes is not None:      # integration: the model's view wins
             modes = model_modes or modes
@@ -348,14 +369,16 @@ class TelemetrySource:
         """
         rows = self._replays[mid]
         n = len(rows)
-        # slow advance (1 cycle/epoch) from the unit's healthy start; reset
-        # rewinds _replay_epoch0 so the hall goes green again on demand.
-        cycle = min(5 + max(0, epoch - self._replay_epoch0), n - 1)
+        # slow advance (1 cycle per 6 epochs ≈ 12 s) from the unit's healthy
+        # start; reset rewinds _replay_epoch0 so the hall goes green again on
+        # demand. At 1 cycle/epoch the shorter units were drifting back to
+        # "Watch" within minutes of a reset — demo noise, not a story.
+        cycle = min(5 + max(0, epoch - self._replay_epoch0) // 6, n - 1)
         _, s2, s4, s11, s15 = rows[cycle - 1]
         w2 = _lin(s2, 641.0, 644.5, 0.0, 1.0)
         signals = {
             "mould_temp_C": _safe_round(193.0 + 3.0 * w2),
-            "coil_power_kW": _safe_round(_lin(s4, 1398.0, 1428.0, 60.0, 92.0)),
+            "coil_power_kW": _safe_round(_lin(s4, 1398.0, 1428.0, 62.0, 92.0)),
             "vibration_rms_mm_s": _safe_round(
                 0.9 + 0.25 * _lin(s11, 47.0, 48.5, 0.0, 1.0), 2),
             "pressure_bar": _safe_round(17.5 - 0.4 * _lin(s15, 8.38, 8.55, 0.0, 1.0)),

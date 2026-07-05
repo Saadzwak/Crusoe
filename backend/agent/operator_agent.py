@@ -67,7 +67,8 @@ HARD RULES
    - spec / limits → the limits themselves and where the machine sits against them.
 7. CONVERSATION MEMORY — if earlier turns of this conversation are provided, do not restate numbers you already gave unless they changed (then give old → new). Never repeat the same recommendation twice: if you already advised it, refer back in a few words ("still my advice") or say what changed.
 8. Under ~110 words. Bullets ("- ") only when listing 2+ distinct facts — a simple question deserves a plain sentence. End with a recommendation ONLY if the operator asked what to do, or a limit is being crossed right now and no advisory is pending; one line, offered as a choice.
-9. Do NOT write a "Sources" or "Data Provenance" section yourself — the platform adds the list of tools you consulted automatically.
+9. PLAIN TEXT ONLY — the console renders raw text, not markdown. Never use asterisks, underscores, backticks, or # headers for emphasis; they would show as literal symbols on the operator's screen. "- " bullets are the only formatting allowed.
+10. Do NOT write a "Sources" or "Data Provenance" section yourself — the platform adds the list of tools you consulted automatically.
 
 SITE CONTEXT (static dossier extracts — background reference, cite tags when used):
 {site_context}"""
@@ -139,6 +140,13 @@ class ToolCallingOperator:
         cut = text.find("Data Provenance")
         if cut > 0:
             text = text[:cut].rstrip(" \n-*#:")
+        # The console renders RAW text — markdown emphasis would show as
+        # literal ** stars **. Belt over rule 9: strip emphasis markers but
+        # keep "- " bullets (leading hyphens are real formatting here).
+        text = text.replace("**", "").replace("__", "")
+        text = re.sub(r"^#{1,4}\s*", "", text, flags=re.M)   # headers
+        text = re.sub(r"(?<![\w-])[*_](\S[^*_\n]*?)[*_](?![\w-])", r"\1", text)
+        text = re.sub(r"`([^`\n]*)`", r"\1", text)
         if not text:
             text = ("I couldn't put together an answer this turn — see the sources "
                     "I checked below.")
@@ -157,8 +165,8 @@ class ToolCallingOperator:
             nm = pretty.get(p["tool"], p["tool"])
             if p["ok"] and nm not in names:
                 names.append(nm)
-        if names:
-            return text + "\n\n_Checked: " + ", ".join(names) + "._"
+        if names:  # plain text — no underscore italics (raw console, rule 9)
+            return text + "\n\nChecked: " + ", ".join(names) + "."
         return text
 
     @staticmethod

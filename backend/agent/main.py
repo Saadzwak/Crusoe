@@ -289,6 +289,22 @@ async def _run_loop(interval: float) -> None:
                                 return
                             S.hub.publish("tick", ptick.model_dump())
                             if ptick.advisory is not None:
+                                # STALE GUARD: the LLM chain can outlive a
+                                # "Reset to normal" — an advisory landing on a
+                                # now-healthy plant must NOT pop a red card.
+                                # Close it silently, keep it in the audit log.
+                                if getattr(S.telemetry, "arc_mode", "fault") != "fault":
+                                    try:
+                                        S.operator.handle_override(
+                                            ptick.advisory.id, "accepted",
+                                            "Auto-closed — analysis finished after "
+                                            "Reset to normal", S.store)
+                                    except Exception:  # noqa: BLE001
+                                        pass
+                                    S.store.log_event("advisory_suppressed", {
+                                        "id": ptick.advisory.id,
+                                        "machine_id": ptick.advisory.machine_id})
+                                    return
                                 # (no log_event here — the pipeline already
                                 # logged the "advisory" hop with machine_id)
                                 S.hub.publish("advisory", ptick.advisory.model_dump())

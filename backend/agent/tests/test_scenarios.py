@@ -290,8 +290,8 @@ async def main() -> None:
     # @integration (2026-07-05): the operator-facing sources line is now the
     # compact "_Checked: …_" footer (full machine trail stays on
     # turn.provenance) — accept either wording, same guarantee.
-    c.expect(("Data Provenance" in content) or ("_Checked:" in content),
-             "no sources line (Data Provenance/_Checked)")
+    c.expect(("Data Provenance" in content) or ("Checked:" in content),
+             "no sources line (Data Provenance/Checked)")
     tools_used = {p["tool"] for p in provenance}
     c.expect(len(tools_used) >= 2, f"<2 tools in provenance: {tools_used}")
     if not c.fails:
