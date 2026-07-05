@@ -82,6 +82,15 @@ def _lin(x: float, lo: float, hi: float, out_lo: float, out_hi: float) -> float:
     return out_lo + (x - lo) * (out_hi - out_lo) / (hi - lo)
 
 
+# ==== INTEGRATION (demo 2026-07-05) — real-PINN hero + honest replays ========
+# CP-07 (the UI hero card) <- RC-07 fed by the TRAINED MH-PINN
+# (pinn/models/mh_pinn_v2.pt) instead of the linear stand-in; three extra hall
+# presses replay DISTINCT real FD001 units (readings only — no PINN claim, no
+# advisory pipeline; the loop skips the LLM path via REPLAY_ONLY_IDS).
+REPLAY_PRESS_UNITS = {"CP-01": 24, "CP-03": 76, "CP-10": 2}
+REPLAY_ONLY_IDS = frozenset(REPLAY_PRESS_UNITS)
+
+
 class TelemetrySource:
     """Deterministic replay — next_batch(epoch) is a pure function of epoch."""
 
@@ -92,6 +101,48 @@ class TelemetrySource:
         self._fd001 = self._load_fd001(d / "train_FD001.txt", self.UNIT)
         self._max_cycle = len(self._fd001)  # unit 1 → 192
         self._ai4i_healthy, self._ai4i_hdf = self._load_ai4i(d / "ai4i2020.csv")
+        # ---- integration: trained-PINN runtime for RC-07 (graceful fallback)
+        self._pinn_runtime = None
+        try:
+            import sys
+            _root = Path(__file__).resolve().parents[2]
+            if str(_root) not in sys.path:
+                sys.path.insert(0, str(_root))
+            from pinn.inference import PinnRuntime
+            self._pinn_runtime = PinnRuntime(repo_root=_root, unit=self.UNIT)
+            print("[telemetry] RC-07 physical state: TRAINED MH-PINN "
+                  "(pinn/models/mh_pinn_v2.pt, RUL head)")
+        except Exception as e:  # noqa: BLE001 — no torch/checkpoint: stand-in
+            print(f"[telemetry] PinnRuntime unavailable ({e!r}) — RC-07 keeps "
+                  "the linear stand-in mapping")
+        # ---- integration: distinct-real-unit replays for the hall presses
+        self._replays: dict[str, list[list[float]]] = {}
+        for _mid, _unit in REPLAY_PRESS_UNITS.items():
+            try:
+                self._replays[_mid] = self._load_fd001(d / "train_FD001.txt", _unit)
+            except Exception as e:  # noqa: BLE001
+                print(f"[telemetry] replay {_mid} (FD001 unit {_unit}) off: {e!r}")
+        # ---- integration: live scenario state (a real factory dashboard must
+        # keep moving). "heartbeat" = RC-07 healthy, gently ticking; "fault" =
+        # the degradation arc runs from the epoch the operator injected it.
+        self.arc_mode = "heartbeat"     # "heartbeat" | "fault"
+        self.fault_kind = "bearing"     # "bearing" | "thermal"
+        self._fault_epoch0 = 0
+        self._replay_epoch0 = 0         # hall replays restart from their healthy start
+
+    def set_scenario(self, mode: str, kind: str = "bearing",
+                     epoch: int = 0) -> None:
+        """Switch RC-07 between healthy heartbeat and a fault arc (demo control)."""
+        self.arc_mode = "fault" if mode == "fault" else "heartbeat"
+        if self.arc_mode == "fault":
+            self.fault_kind = kind if kind in ("thermal", "bearing", "hdf") \
+                else "bearing"
+            self._fault_epoch0 = int(epoch)
+        else:
+            # Reset to normal: rewind the hall replays to the healthy start of
+            # their real units so every press reads green again (still a REAL
+            # trajectory — just from its early, healthy portion).
+            self._replay_epoch0 = int(epoch)
 
     # ------------------------------------------------------------- loaders
     @staticmethod
@@ -137,42 +188,116 @@ class TelemetrySource:
     # ------------------------------------------------------------- curing
     def _curing_reading(self, epoch: int) -> PinnReading:
         # D4-telemetry-v1: arc rescaled to the verified limits (see module
-        # docstring for the exact mapping). Pure function of epoch.
-        cycle = min(40 + 12 * max(epoch, 0), self._max_cycle - 1)
+        # docstring for the exact mapping).
+        # Integration: two modes. HEARTBEAT holds a healthy early cycle that
+        # oscillates gently (the dashboard stays alive at rest); FAULT runs the
+        # degradation arc from the epoch the operator injected the fault.
+        if self.arc_mode == "fault":
+            # Demo pacing: the operator just pressed the fault button — the
+            # targeted signal must move within a tick or two and cross its
+            # limit in ~3 ticks (6 s at the 2 s loop), not half a minute.
+            # 30 cycles/epoch still walks the SAME real degradation
+            # trajectory, just faster (~5 epochs to end of life).
+            eff = max(0, epoch - self._fault_epoch0)
+            # Two DIFFERENT dramas, so the demo has an orange path and a red
+            # path and never surprises the presenter:
+            #   thermal — runs to end of life: temp crosses 210 °C at ~eff 3,
+            #             health collapses, CRITICAL, red pulsing card.
+            #   bearing — plateaus mid-trajectory (cycle 106): vibration holds
+            #             in ISO zone C (~4 mm/s, tier-1 "surveillance"),
+            #             health ~0.5 → WATCH/HIGH, ORANGE — never zone D red.
+            _cap = (min(106, self._max_cycle - 1)
+                    if self.fault_kind == "bearing" else self._max_cycle - 1)
+            cycle = min(40 + 30 * eff, _cap)
+            heartbeat = False
+        else:
+            phase = epoch % 16
+            cycle = 42 + (phase if phase < 8 else 16 - phase)   # 42..50..42, healthy
+            heartbeat = True
         _, s2, s4, s11, s15 = self._fd001[cycle - 1]
         health = round(1.0 - cycle / self._max_cycle, 3)
         rul = float(self._max_cycle - cycle)
         residual = _safe_round(0.015 + 0.8 * (1.0 - health) ** 4, 4)
+        # ---- integration: the TRAINED MH-PINN drives RC-07's physical state
+        # (health/RUL/residual/modes); the linear values above stay as the
+        # documented fallback when torch or the checkpoint are unavailable.
+        model_modes: Optional[dict] = None
+        if getattr(self, "_pinn_runtime", None) is not None:
+            try:
+                _p = self._pinn_runtime.infer_at_cycle(cycle)
+                health = _p["health_index"]
+                rul = float(_p["rul_cycles"])
+                residual = _p["residual"]
+                model_modes = _p["failure_mode_probs"]
+            except Exception as e:  # noqa: BLE001 — never kill the feed
+                print(f"[telemetry] PINN inference failed at cycle {cycle}: {e!r}")
 
-        # degradation fraction 0..1 over the demo arc (cycle 40 → 191)
-        frac = max(0.0, min(1.0, (cycle - 40.0) / float(self._max_cycle - 1 - 40)))
+        # degradation fraction 0..1 over the demo arc; 0 while healthy.
+        frac = 0.0 if heartbeat else \
+            max(0.0, min(1.0, (cycle - 40.0) / float(self._max_cycle - 1 - 40)))
+        # thermal fault drives mould temp harder; bearing fault drives vibration.
+        # Factors sized so the TARGETED signal crosses its verified limit at
+        # eff≈2-3 (4-6 s) while the other signals follow later — the drawer
+        # tile goes red on the same machine the button named, fast.
+        f_temp = frac * (1.6 if self.fault_kind == "thermal" else 0.7)
+        f_vib = frac * (1.45 if self.fault_kind == "bearing" else 0.6)
         # C-MAPSS sensor wobble terms, each mapped to [0, 1] over unit-1 range
         w2 = _lin(s2, 641.0, 644.5, 0.0, 1.0)
         w11 = _lin(s11, 47.0, 48.5, 0.0, 1.0)
         w15 = _lin(s15, 8.38, 8.55, 0.0, 1.0)
+        # HEARTBEAT: gentle in-envelope sensor noise so the dashboard visibly
+        # lives at rest (display-level only; PINN health/RUL above are real).
+        import math
+        hb = (1.0 if heartbeat else 0.0)
+        n_temp = hb * 0.9 * math.sin(epoch * 0.9)
+        n_vib = hb * (0.35 + 0.28 * math.sin(epoch * 1.7))   # ~0.1..0.9 mm/s live wobble
+        n_pow = hb * 1.4 * math.sin(epoch * 0.6 + 1.0)
 
         signals = {
-            "mould_temp_C": _safe_round(193.0 + 3.0 * w2 + 18.0 * frac ** 2.6),
-            "coil_power_kW": _safe_round(_lin(s4, 1398.0, 1428.0, 60.0, 92.0)),
-            "vibration_rms_mm_s": _safe_round(0.85 + 0.2 * w11 + 7.3 * frac ** 2.2),
+            "mould_temp_C": _safe_round(193.0 + 3.0 * w2 + 22.0 * f_temp ** 2.4 + n_temp),
+            # 62 kW floor of the stand-in map: at early cycles s4 sits at the
+            # bottom of its range and the ±1.4 kW heartbeat wobble was dipping
+            # the reading under the 60 kW operating floor — a healthy machine
+            # must not idle 2% below its own envelope.
+            "coil_power_kW": _safe_round(_lin(s4, 1398.0, 1428.0, 62.0, 92.0) + n_pow),
+            "vibration_rms_mm_s": _safe_round(0.85 + 0.2 * w11 + 8.2 * f_vib ** 2.1 + n_vib),
             "pressure_bar": _safe_round(17.6 - 0.4 * w15 - 2.9 * frac ** 1.8),
             "cycle_min": _safe_round(12.4 + 0.3 * w2 + 18.8 * frac ** 3.2, 1),
         }
 
-        if epoch <= 5:
+        eff_note = 0 if heartbeat else (epoch - self._fault_epoch0)
+        if heartbeat or eff_note <= 0:
             note = ("Nominal curing cycle on press RC-07: mould temperature, "
                     "coil power and press vibration all inside the envelope.")
             modes: dict[str, float] = {}
-        elif epoch <= 9:
-            note = ("Press RC-07 trend watch: vibration rising cycle over cycle "
-                    "and a thermal hotspot is suspected on the mould shoulder.")
-            modes = {"bearing_wearout": 0.35}
+        elif eff_note <= 2:
+            driver = ("mould temperature climbing on the shoulder"
+                      if self.fault_kind == "thermal"
+                      else "vibration rising cycle over cycle")
+            note = (f"Press RC-07 trend watch: {driver}; the physics twin sees "
+                    f"remaining life falling.")
+            modes = {("thermal_runaway" if self.fault_kind == "thermal"
+                      else "bearing_wearout"): 0.35}
+        elif self.fault_kind != "bearing":   # thermal / hdf: run-to-failure red
+            driver = ("mould temperature" if self.fault_kind == "thermal"
+                      else "thermal margin")
+            note = (f"CRITICAL drift on press RC-07: {driver} climbing "
+                    f"toward the failure envelope, remaining life down to "
+                    f"{int(rul)} cycles — imminent {self.fault_kind} failure "
+                    f"suspected.")
+            modes = {"thermal_runaway": 0.65, "bearing_wearout": 0.2}
         else:
-            note = (f"CRITICAL drift on press RC-07: vibration and mould temperature "
-                    f"climbing toward the failure envelope, RUL down to {int(rul)} "
-                    f"cycles — imminent bearing wear-out suspected.")
-            modes = {"bearing_wearout": 0.65, "thermal_runaway": 0.25}
+            # bearing = the ORANGE scenario: sustained zone-C vibration,
+            # serious but not end-of-life. Wording carries HIGH trigger words
+            # ("drift") and deliberately NO critical/imminent/failure words —
+            # severity must stay HIGH, never CRITICAL (mock-keyword contract).
+            note = ("Sustained vibration drift on press RC-07: bearing wear "
+                    "suspected, levels holding in ISO zone C — plan a bearing "
+                    "inspection at the next stop.")
+            modes = {"bearing_wearout": 0.55, "thermal_runaway": 0.1}
 
+        if model_modes is not None:      # integration: the model's view wins
+            modes = model_modes or modes
         return PinnReading(
             machine_id="RC-07", department="Curing", epoch=epoch,
             signals=signals,
@@ -194,7 +319,13 @@ class TelemetrySource:
 
     def _calendering_reading(self, epoch: int) -> PinnReading:
         n = len(self._ai4i_healthy)
-        if epoch == 8:  # scheduled HDF spike (UDI 3237: margin 8.6 K, 1342 rpm)
+        # Integration: the HDF spike is its own scenario (fault_kind "hdf"),
+        # NOT a side effect of a CP-07 fault — a thermal/bearing injection on
+        # the press must not make the calender pop a red card mid-demo (the
+        # operator pressed a CP-07 button; every alert should stay CP-07).
+        eff = (epoch - self._fault_epoch0) \
+            if (self.arc_mode == "fault" and self.fault_kind == "hdf") else -1
+        if eff == 4:  # scheduled HDF spike (UDI 3237: margin 8.6 K, 1342 rpm)
             row = self._ai4i_hdf
             note = ("Heat-dissipation anomaly on calender CL-03 nip drive: "
                     "thermal margin collapsing and torque load rising above envelope.")
@@ -204,7 +335,7 @@ class TelemetrySource:
             row = self._ai4i_healthy[(epoch * 131 + 17) % n]
             note = ("Calender CL-03 steady: nip temperatures, web tension and "
                     "roll torque in range.")
-            if epoch == 9:
+            if eff == 5:
                 note = ("Calender CL-03 back in range after the thermal-margin "
                         "spike; nip drive load settled.")
             pinn = PinnState(health_index=_safe_round(0.84 + (epoch % 3) * 0.01),
@@ -228,6 +359,43 @@ class TelemetrySource:
             signals=self._ai4i_signals(row, "chamber"), pinn=pinn, note=note,
         )
 
+    # ---------------------------------------------------- integration: replays
+    def _replay_reading(self, mid: str, epoch: int) -> PinnReading:
+        """Readings-only replay of one DISTINCT real FD001 unit (demo hall).
+
+        Same signal-mapping family as RC-07, slower advance, no drama arc,
+        neutral note wording (mock-triage discipline). The pinn block is the
+        trajectory position — labeled a replay, never PINN inference.
+        """
+        rows = self._replays[mid]
+        n = len(rows)
+        # slow advance (1 cycle per 6 epochs ≈ 12 s) from the unit's healthy
+        # start; reset rewinds _replay_epoch0 so the hall goes green again on
+        # demand. At 1 cycle/epoch the shorter units were drifting back to
+        # "Watch" within minutes of a reset — demo noise, not a story.
+        cycle = min(5 + max(0, epoch - self._replay_epoch0) // 6, n - 1)
+        _, s2, s4, s11, s15 = rows[cycle - 1]
+        w2 = _lin(s2, 641.0, 644.5, 0.0, 1.0)
+        signals = {
+            "mould_temp_C": _safe_round(193.0 + 3.0 * w2),
+            "coil_power_kW": _safe_round(_lin(s4, 1398.0, 1428.0, 62.0, 92.0)),
+            "vibration_rms_mm_s": _safe_round(
+                0.9 + 0.25 * _lin(s11, 47.0, 48.5, 0.0, 1.0), 2),
+            "pressure_bar": _safe_round(17.5 - 0.4 * _lin(s15, 8.38, 8.55, 0.0, 1.0)),
+            "cycle_min": _safe_round(12.3 + 0.4 * w2, 1),
+        }
+        health = round(1.0 - cycle / n, 3)
+        return PinnReading(
+            machine_id=mid, department="Curing", epoch=epoch,
+            signals=signals,
+            pinn=PinnState(health_index=max(0.0, min(health, 0.89)),
+                           rul_cycles=float(n - cycle), residual=0.0,
+                           failure_mode_probs={}),
+            note=(f"REPLAY of real C-MAPSS FD001 unit "
+                  f"{REPLAY_PRESS_UNITS[mid]} — readings replay only, no PINN "
+                  f"inference, no advisory pipeline (demo hall press)."),
+        )
+
     # ------------------------------------------------------------- public
     def next_batch(self, epoch: int) -> list[SignedReading]:
         """One signed reading per machine for this epoch."""
@@ -236,6 +404,12 @@ class TelemetrySource:
                         self._calendering_reading(epoch),
                         self._mixing_reading(epoch)):
             payload = reading.model_dump()
+            out.append(SignedReading(payload=payload,
+                                     signature=sign_payload(payload)))
+        # ---- integration: honest hall replays (distinct REAL FD001 units,
+        # readings only — the loop keeps them out of the LLM pipeline).
+        for _mid in self._replays:
+            payload = self._replay_reading(_mid, epoch).model_dump()
             out.append(SignedReading(payload=payload,
                                      signature=sign_payload(payload)))
         return out

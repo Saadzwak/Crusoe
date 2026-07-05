@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="/static/support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <script src="/static/vendor/three.min.js"></script>
+  <script src="/static/vendor/CopyShader.js"></script>
+  <script src="/static/vendor/LuminosityHighPassShader.js"></script>
+  <script src="/static/vendor/EffectComposer.js"></script>
+  <script src="/static/vendor/RenderPass.js"></script>
+  <script src="/static/vendor/ShaderPass.js"></script>
+  <script src="/static/vendor/UnrealBloomPass.js"></script>
+  <script src="/static/vendor/OrbitControls.js"></script>
+  <style>
+    *{box-sizing:border-box;}
+    html,body{margin:0;padding:0;height:100%;background:#0b0f12;overflow:hidden;}
+    @keyframes cw-spin{to{transform:rotate(360deg);}}
+    @keyframes cw-fade{from{opacity:0;}to{opacity:1;}}
+  </style>
+</helmet>
+<div style="position:fixed;inset:0;background:#0b0f12;font-family:'IBM Plex Sans',system-ui,sans-serif;">
+  <div ref="{{ mountRef }}" style="position:absolute;inset:0;"></div>
+
+  <div style="position:absolute;top:22px;left:24px;pointer-events:none;color:#eaf1f4;text-shadow:0 2px 12px rgba(0,0,0,.7);">
+    <div style="font-size:11px;letter-spacing:2px;color:#9db2bd;font-weight:600;">VULCANIZATION LINE · BUILDING A</div>
+    <div style="font-size:24px;font-weight:700;margin-top:3px;">Tire Curing Press — CP-07</div>
+    <div style="font-size:12.5px;color:#b9c7cf;margin-top:3px;">Dome-type single-cavity press · 63" bladder</div>
+  </div>
+
+  <div style="position:absolute;bottom:20px;left:24px;pointer-events:none;display:flex;align-items:center;gap:9px;color:#9db2bd;font-size:12px;text-shadow:0 1px 8px rgba(0,0,0,.7);">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 3a9 9 0 1 0 9 9"/><path d="M12 3v4M21 12h-4"/></svg>
+    Drag to orbit · scroll to zoom
+  </div>
+
+  <sc-if value="{{ loading }}" hint-placeholder-val="{{ true }}">
+    <div style="position:absolute;inset:0;background:#0b0f12;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;">
+      <div style="width:34px;height:34px;border:3px solid #223038;border-top-color:#55C0D6;border-radius:50%;animation:cw-spin 0.9s linear infinite;"></div>
+      <div style="color:#7f96a1;font-size:12.5px;letter-spacing:.5px;">Building the scene…</div>
+    </div>
+  </sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  constructor(props){
+    super(props);
+    this.mountRef = React.createRef();
+    this.state = { loading:true };
+  }
+  componentDidMount(){ this.wait(()=>this.initScene()); }
+  componentWillUnmount(){ this.dispose(); }
+
+  wait(cb){
+    const ok = ()=> window.THREE && THREE.OrbitControls && THREE.EffectComposer && THREE.UnrealBloomPass && THREE.RenderPass;
+    if(ok()){ cb(); return; }
+    this._poll = setInterval(()=>{ if(ok()){ clearInterval(this._poll); cb(); } }, 80);
+  }
+
+  // ---------- procedural textures ----------
+  cvs(w,h){ const c=document.createElement('canvas'); c.width=w; c.height=h; return c; }
+  texConcrete(bump){
+    const T=THREE, c=this.cvs(1024,1024), x=c.getContext('2d');
+    x.fillStyle = bump?'#7c7c7c':'#4b5054'; x.fillRect(0,0,1024,1024);
+    for(let i=0;i<160000;i++){ const gx=Math.random()*1024, gy=Math.random()*1024, v=(Math.random()*70+50)|0;
+      x.fillStyle = bump?`rgba(${v},${v},${v},0.05)`:`rgba(${v+30},${v+34},${v+36},0.045)`; x.fillRect(gx,gy,1.6,1.6); }
+    for(let i=0;i<90;i++){ const gx=Math.random()*1024, gy=Math.random()*1024, r=20+Math.random()*130;
+      const g=x.createRadialGradient(gx,gy,0,gx,gy,r); const d=bump?'rgba(70,70,70,':'rgba(18,22,24,';
+      g.addColorStop(0,d+(0.2+Math.random()*0.35)+')'); g.addColorStop(1,d+'0)'); x.fillStyle=g; x.fillRect(gx-r,gy-r,r*2,r*2); }
+    x.strokeStyle = bump?'rgba(34,34,34,0.6)':'rgba(12,15,17,0.55)';
+    for(let i=0;i<55;i++){ x.lineWidth=Math.random()*1.6; x.beginPath(); let px=Math.random()*1024, py=Math.random()*1024; x.moveTo(px,py);
+      for(let j=0;j<6;j++){ px+=(Math.random()-0.5)*160; py+=(Math.random()-0.5)*160; x.lineTo(px,py); } x.stroke(); }
+    // expansion joints (grid)
+    x.strokeStyle = bump?'rgba(24,24,24,0.8)':'rgba(10,12,14,0.7)'; x.lineWidth = bump?3:2;
+    for(let i=1;i<4;i++){ x.beginPath(); x.moveTo(i*256,0); x.lineTo(i*256,1024); x.stroke(); x.beginPath(); x.moveTo(0,i*256); x.lineTo(1024,i*256); x.stroke(); }
+    const t=new T.CanvasTexture(c); t.wrapS=t.wrapT=T.RepeatWrapping; t.repeat.set(5,5); if(!bump)t.encoding=T.sRGBEncoding; t.anisotropy=8; return t;
+  }
+  texSteel(){
+    const T=THREE, c=this.cvs(512,512), x=c.getContext('2d');
+    x.fillStyle='#8f8f8f'; x.fillRect(0,0,512,512);
+    for(let i=0;i<4200;i++){ const y=Math.random()*512, gx=Math.random()*512, w=30+Math.random()*220, v=(110+Math.random()*100)|0;
+      x.strokeStyle=`rgba(${v},${v},${v},0.12)`; x.lineWidth=0.7; x.beginPath(); x.moveTo(gx,y); x.lineTo(gx+w,y+(Math.random()-0.5)*1.5); x.stroke(); }
+    for(let i=0;i<120;i++){ const gx=Math.random()*512, gy=Math.random()*512, r=2+Math.random()*14;
+      const g=x.createRadialGradient(gx,gy,0,gx,gy,r); g.addColorStop(0,'rgba(56,56,56,0.5)'); g.addColorStop(1,'rgba(56,56,56,0)'); x.fillStyle=g; x.fillRect(gx-r,gy-r,r*2,r*2); }
+    const t=new T.CanvasTexture(c); t.wrapS=t.wrapT=T.RepeatWrapping; t.repeat.set(2,2); return t;
+  }
+  texEnv(){
+    const T=THREE, c=this.cvs(2048,1024), x=c.getContext('2d');
+    const g=x.createLinearGradient(0,0,0,1024);
+    g.addColorStop(0,'#4d5b66'); g.addColorStop(0.36,'#333f48'); g.addColorStop(0.5,'#232c33'); g.addColorStop(0.7,'#171d22'); g.addColorStop(1,'#0c1013');
+    x.fillStyle=g; x.fillRect(0,0,2048,1024);
+    // ceiling high-bay light rows (bright, reflected in metal)
+    for(let r=0;r<3;r++){ const y=70+r*46; for(let i=0;i<9;i++){ const gx=90+i*215;
+      const lg=x.createLinearGradient(0,y-14,0,y+16); lg.addColorStop(0,'rgba(255,246,228,0.0)'); lg.addColorStop(0.5,'rgba(255,246,228,0.95)'); lg.addColorStop(1,'rgba(255,246,228,0.0)');
+      x.fillStyle=lg; x.fillRect(gx,y-14,130,30); } }
+    // clerestory windows band (cool daylight)
+    const wg=x.createLinearGradient(0,300,0,360); wg.addColorStop(0,'rgba(150,178,200,0.0)'); wg.addColorStop(0.5,'rgba(170,196,216,0.8)'); wg.addColorStop(1,'rgba(150,178,200,0.0)');
+    x.fillStyle=wg; for(let i=0;i<16;i++){ x.fillRect(i*128+16, 300, 90, 60); }
+    const t=new T.CanvasTexture(c); t.mapping=T.EquirectangularReflectionMapping; t.encoding=T.sRGBEncoding; return t;
+  }
+
+  // ---------- material library ----------
+  mats(){
+    const T=THREE, rough=this.texSteel();
+    return {
+      paint: (hex,cc)=> new T.MeshPhysicalMaterial({color:hex, metalness:0.45, roughness:0.5, roughnessMap:rough, bumpMap:rough, bumpScale:0.004, envMapIntensity:0.9, clearcoat:cc||0.5, clearcoatRoughness:0.4}),
+      steel: new T.MeshStandardMaterial({color:0x8b949b, metalness:0.92, roughness:0.34, roughnessMap:rough, envMapIntensity:1.25}),
+      steelDark: new T.MeshStandardMaterial({color:0x2b3237, metalness:0.85, roughness:0.46, roughnessMap:rough, envMapIntensity:1.1}),
+      chrome: new T.MeshStandardMaterial({color:0xccd0d2, metalness:1.0, roughness:0.12, envMapIntensity:1.5}),
+      insul: new T.MeshStandardMaterial({color:0x676c70, metalness:0.4, roughness:0.62, roughnessMap:rough, envMapIntensity:0.7}),
+      pipe: new T.MeshStandardMaterial({color:0x596670, metalness:0.85, roughness:0.34, roughnessMap:rough, envMapIntensity:1.2}),
+      brass: new T.MeshStandardMaterial({color:0xb0894f, metalness:1.0, roughness:0.32, envMapIntensity:1.3}),
+      yellow: new T.MeshStandardMaterial({color:0xcf9f23, metalness:0.25, roughness:0.5, envMapIntensity:0.7}),
+      rubber: new T.MeshPhysicalMaterial({color:0x0a0c0e, metalness:0.0, roughness:0.55, clearcoat:0.35, clearcoatRoughness:0.5, envMapIntensity:0.6}),
+      cabinet: new T.MeshPhysicalMaterial({color:0x39434a, metalness:0.4, roughness:0.5, envMapIntensity:0.8, clearcoat:0.4}),
+      hmi: new T.MeshStandardMaterial({color:0x0a1420, emissive:0x1d5f8a, emissiveIntensity:0.9, metalness:0.1, roughness:0.25}),
+      rough
+    };
+  }
+
+  // ---------- a dome-type curing press ----------
+  buildPress(M, opts){
+    const T=THREE, g=new T.Group(), hero=opts.hero;
+    const paint = opts.paint;
+    const add=(geo,mat,x,y,z,rx,ry,rz,cast)=>{ const m=new T.Mesh(geo,mat); m.position.set(x,y,z); if(rx)m.rotation.x=rx; if(ry)m.rotation.y=ry; if(rz)m.rotation.z=rz; m.castShadow=cast!==false; m.receiveShadow=true; g.add(m); return m; };
+
+    // base plinth + anchor pads
+    add(new T.BoxGeometry(3.2,0.5,2.3), M.steelDark, 0,0.25,0);
+    add(new T.BoxGeometry(3.4,0.12,2.5), M.steelDark, 0,0.06,0);
+    // lower bolster housing (painted)
+    add(new T.BoxGeometry(2.5,1.2,1.9), paint, 0,1.1,0);
+    // side columns (brushed steel box sections)
+    add(new T.BoxGeometry(0.42,3.3,0.6), M.steel, -1.28,2.15,0);
+    add(new T.BoxGeometry(0.42,3.3,0.6), M.steel,  1.28,2.15,0);
+    // column tie plates
+    add(new T.BoxGeometry(0.5,0.5,0.7), M.steelDark, -1.28,1.0,0);
+    add(new T.BoxGeometry(0.5,0.5,0.7), M.steelDark,  1.28,1.0,0);
+    // top crosshead beam
+    add(new T.BoxGeometry(3.1,0.75,1.25), paint, 0,3.95,0);
+    add(new T.BoxGeometry(3.25,0.16,1.4), M.steelDark, 0,4.4,0);
+    // central heated mould / steam dome chamber
+    add(new T.CylinderGeometry(0.95,1.05,1.5,40), M.insul, 0,2.35,0);
+    // insulation banding rings
+    for(let i=0;i<3;i++) add(new T.TorusGeometry(0.98,0.05,10,40), M.steelDark, 0,1.85+i*0.5,0, Math.PI/2);
+    // upper dome cap
+    add(new T.SphereGeometry(0.95,36,20,0,Math.PI*2,0,Math.PI/2), M.insul, 0,3.1,0);
+    add(new T.CylinderGeometry(0.4,0.5,0.4,24), M.steel, 0,3.7,0);
+    // hydraulic piston from crosshead into dome
+    add(new T.CylinderGeometry(0.28,0.28,1.1,28), M.chrome, 0,3.35,0);
+    add(new T.CylinderGeometry(0.34,0.34,0.35,28), M.steelDark, 0,3.75,0);
+    // lower mould flange visible at parting line
+    add(new T.CylinderGeometry(1.1,1.1,0.18,40), M.steel, 0,1.6,0);
+    // corner bolts on bolster
+    [[1.1,1.0],[1.1,-1.0],[-1.1,1.0],[-1.1,-1.0]].forEach(p=> add(new T.CylinderGeometry(0.06,0.06,0.1,8), M.steelDark, p[0],1.72,p[1]));
+
+    if(hero){
+      // steam + hydraulic pipe bundle on right side
+      const px=1.75;
+      for(let i=0;i<3;i++){ const z=-0.55+i*0.55, r=0.09-i*0.015;
+        add(new T.CylinderGeometry(r,r,3.4,14), M.pipe, px, 1.9, z);
+        for(let f=0;f<4;f++) add(new T.CylinderGeometry(r+0.03,r+0.03,0.06,14), M.steelDark, px,0.6+f*0.9,z); }
+      // insulated steam main + elbow
+      add(new T.CylinderGeometry(0.14,0.14,2.6,18), M.insul, px+0.1, 2.2, 0.7);
+      add(new T.TorusGeometry(0.26,0.14,12,20,Math.PI/2), M.insul, px+0.1,3.5,0.44, 0, Math.PI/2);
+      add(new T.CylinderGeometry(0.14,0.14,1.1,18), M.insul, px-0.45,3.6,0.44, 0,0,Math.PI/2);
+      // valves with handwheels
+      [[px,1.5,0.0],[px-0.02,2.7,-0.55]].forEach(v=>{ add(new T.CylinderGeometry(0.13,0.13,0.2,6), M.brass, v[0],v[1],v[2]);
+        add(new T.TorusGeometry(0.16,0.03,8,20), M.steelDark, v[0]+0.16,v[1],v[2], 0,Math.PI/2); });
+      // horizontal manifold at base
+      add(new T.CylinderGeometry(0.11,0.11,1.8,16), M.pipe, px, 0.5, 0, 0,0,Math.PI/2);
+      // control cabinet beside press
+      const cx=2.9;
+      add(new T.BoxGeometry(0.95,2.0,0.7), M.cabinet, cx,1.0,0.4);
+      add(new T.BoxGeometry(0.62,0.46,0.04), M.hmi, cx-0.02,1.55,0.77);
+      [[0x3fb57a,-0.18],[0xe0a93b,0.0],[0xf05149,0.18]].forEach(b=> add(new T.SphereGeometry(0.035,12,12), new T.MeshStandardMaterial({color:b[0],emissive:b[0],emissiveIntensity:0.8,roughness:0.3}), cx+b[1],1.15,0.77));
+      // stack light on cabinet (status)
+      const segs=[0x2c6b3f,0x7a5c1e,0xf05149];
+      segs.forEach((ccol,i)=>{ const lit=i===2; add(new T.CylinderGeometry(0.07,0.07,0.13,16), new T.MeshStandardMaterial({color:ccol,emissive:ccol,emissiveIntensity:lit?1.6:0.15,transparent:true,opacity:0.92,roughness:0.35}), cx,2.15+i*0.14,0.4); });
+      add(new T.CylinderGeometry(0.02,0.02,0.2,8), M.steelDark, cx,2.5,0.4);
+      // access platform + safety railing (front)
+      add(new T.BoxGeometry(2.6,0.08,0.9), M.steelDark, 0,1.15,1.55);
+      [-1.2,0,1.2].forEach(rx=> add(new T.CylinderGeometry(0.04,0.04,1.0,10), M.yellow, rx,1.65,1.95));
+      add(new T.CylinderGeometry(0.04,0.04,2.6,10), M.yellow, 0,2.1,1.95, 0,0,Math.PI/2);
+      add(new T.CylinderGeometry(0.04,0.04,2.6,10), M.yellow, 0,1.75,1.95, 0,0,Math.PI/2);
+    }
+    return g;
+  }
+
+  buildConveyor(M, len){
+    const T=THREE, g=new T.Group();
+    const add=(geo,mat,x,y,z,rz)=>{ const m=new T.Mesh(geo,mat); m.position.set(x,y,z); if(rz)m.rotation.z=rz; m.castShadow=true; m.receiveShadow=true; g.add(m); return m; };
+    add(new T.BoxGeometry(len,0.12,1.15), M.steelDark, 0,0.62,0);
+    add(new T.BoxGeometry(len,0.2,0.1), M.steel, 0,0.72,0.56);
+    add(new T.BoxGeometry(len,0.2,0.1), M.steel, 0,0.72,-0.56);
+    // rollers
+    for(let x=-len/2+0.2; x<len/2; x+=0.34){ const r=new T.Mesh(new T.CylinderGeometry(0.09,0.09,1.05,16), M.steel); r.position.set(x,0.75,0); r.rotation.x=Math.PI/2; r.castShadow=true; g.add(r); }
+    // legs
+    for(let x=-len/2+0.6; x<len/2; x+=2.4){ [0.45,-0.45].forEach(z=> add(new T.BoxGeometry(0.1,0.62,0.1), M.steelDark, x,0.31,z)); }
+    return g;
+  }
+  tire(M, r){ const T=THREE, g=new T.Group();
+    const t=new T.Mesh(new T.TorusGeometry(r,r*0.42,16,28), M.rubber); t.castShadow=true; t.receiveShadow=true; g.add(t);
+    const rim=new T.Mesh(new T.CylinderGeometry(r*0.5,r*0.5,r*0.5,20), M.steelDark); rim.rotation.x=Math.PI/2; g.add(rim);
+    return g;
+  }
+
+  initScene(){
+    const T=THREE, mount=this.mountRef.current;
+    const w=mount.clientWidth, h=mount.clientHeight;
+    const scene=new T.Scene();
+    scene.fog=new T.Fog(0x2a333a, 20, 62);
+    const camera=new T.PerspectiveCamera(38, w/h, 0.1, 200); camera.position.set(7.5,3.4,9);
+    const renderer=new T.WebGLRenderer({antialias:true}); renderer.setPixelRatio(Math.min(window.devicePixelRatio,2)); renderer.setSize(w,h);
+    renderer.outputEncoding=T.sRGBEncoding; renderer.toneMapping=T.ACESFilmicToneMapping; renderer.toneMappingExposure=0.92;
+    renderer.shadowMap.enabled=true; renderer.shadowMap.type=T.PCFSoftShadowMap;
+    mount.appendChild(renderer.domElement);
+
+    const pmrem=new T.PMREMGenerator(renderer);
+    const envEq=this.texEnv();
+    scene.environment=pmrem.fromEquirectangular(envEq).texture;
+    scene.background=envEq;
+
+    const M=this.mats();
+
+    // ---- floor ----
+    const floor=new T.Mesh(new T.PlaneGeometry(80,80), new T.MeshStandardMaterial({map:this.texConcrete(false), bumpMap:this.texConcrete(true), bumpScale:0.05, roughness:0.95, metalness:0.0, envMapIntensity:0.2}));
+    floor.rotation.x=-Math.PI/2; floor.receiveShadow=true; scene.add(floor);
+    // safety lane paint
+    const laneMat=new T.MeshStandardMaterial({color:0xc7a028, roughness:0.6, metalness:0.0});
+    [3.4,-4.2].forEach(z=>{ const l=new T.Mesh(new T.BoxGeometry(30,0.02,0.16), laneMat); l.position.set(0,0.02,z); l.receiveShadow=true; scene.add(l); });
+
+    // ---- back wall with clerestory windows ----
+    const wall=new T.Mesh(new T.PlaneGeometry(80,20), new T.MeshStandardMaterial({color:0x2a3138, roughness:0.9, metalness:0.05}));
+    wall.position.set(0,10,-16); scene.add(wall);
+    const winMat=new T.MeshStandardMaterial({color:0x8ba2b3, emissive:0x7d97ad, emissiveIntensity:0.42, roughness:0.35});
+    for(let i=-6;i<=6;i++){ const win=new T.Mesh(new T.BoxGeometry(3.2,2.6,0.3), winMat); win.position.set(i*5.6,14,-15.9); scene.add(win); }
+
+    // ---- overhead high-bay light fixtures ----
+    const fixtureMat=new T.MeshStandardMaterial({color:0x2a3036, metalness:0.6, roughness:0.5});
+    const lampMat=new T.MeshStandardMaterial({color:0xfff3da, emissive:0xfff0d2, emissiveIntensity:2.2, roughness:0.2});
+    const lampPos=[[-6,-3],[0,-2],[6,-3],[-4,4],[4,3]];
+    lampPos.forEach(p=>{ const f=new T.Group(); f.position.set(p[0]*1.6,7.2,p[1]*1.2);
+      const hous=new T.Mesh(new T.CylinderGeometry(0.55,0.75,0.5,20), fixtureMat); f.add(hous);
+      const lamp=new T.Mesh(new T.CircleGeometry(0.52,20), lampMat); lamp.rotation.x=Math.PI/2; lamp.position.y=-0.26; f.add(lamp);
+      scene.add(f); });
+
+    // ---- lighting ----
+    scene.add(new T.HemisphereLight(0x9fb3c2, 0x161d22, 0.72));
+    const backfill=new T.PointLight(0x8fa6b8, 0.6, 34, 2); backfill.position.set(-8,5,-3); scene.add(backfill);
+    const backfill2=new T.PointLight(0xffe0b0, 0.5, 30, 2); backfill2.position.set(8,5,-5); scene.add(backfill2);
+    const key=new T.SpotLight(0xfff0d8, 2.3, 40, Math.PI/5, 0.45, 1.4);
+    key.position.set(6,12,7); key.target.position.set(0,2,0);
+    key.castShadow=true; key.shadow.mapSize.set(2048,2048); key.shadow.camera.near=2; key.shadow.camera.far=40; key.shadow.bias=-0.0004; key.shadow.normalBias=0.02;
+    scene.add(key); scene.add(key.target);
+    const key2=new T.SpotLight(0xdfeaff, 1.3, 44, Math.PI/4.5, 0.5, 1.4);
+    key2.position.set(-9,11,-2); key2.target.position.set(-2,1.5,-3); scene.add(key2); scene.add(key2.target);
+    const fill=new T.DirectionalLight(0x8fa8c2, 0.32); fill.position.set(-6,6,10); scene.add(fill);
+    const warm=new T.PointLight(0xffdca8, 0.7, 26, 2); warm.position.set(2,4,3); scene.add(warm);
+
+    // ---- hero press ----
+    const hero=this.buildPress(M, {hero:true, paint:M.paint(0x415a4e,0.55)});
+    scene.add(hero);
+
+    // ---- background press stations (dimmer, less detail) ----
+    const b1=this.buildPress(M, {hero:false, paint:M.paint(0x3c4650,0.4)}); b1.position.set(-6.6,0,-4.5); b1.scale.setScalar(0.98); scene.add(b1);
+    const b2=this.buildPress(M, {hero:false, paint:M.paint(0x4a4b45,0.4)}); b2.position.set(6.8,0,-6); b2.rotation.y=-0.15; scene.add(b2);
+
+    // ---- conveyor line running in front (along X) ----
+    const conv=this.buildConveyor(M, 22); conv.position.set(0,0,3.4); scene.add(conv);
+
+    // uncured (green) tires queued upstream on conveyor (stacked flat)
+    for(let i=0;i<5;i++){ const t=this.tire(M,0.48); t.rotation.x=Math.PI/2; t.position.set(-6.2+i*0.34,0.9,3.4); scene.add(t); }
+    // a rack of standing green tires upstream
+    for(let i=0;i<4;i++){ const t=this.tire(M,0.5); t.position.set(-8.6,0.55,1.6-i*0.26); t.rotation.z=Math.PI/2; scene.add(t); }
+    // finished tires stacked downstream
+    [[7.4,3.4],[8.3,3.4],[7.9,1.7]].forEach(pos=>{ for(let i=0;i<5;i++){ const t=this.tire(M,0.5); t.rotation.x=Math.PI/2; t.position.set(pos[0],0.16+i*0.44,pos[1]); scene.add(t); } });
+    // a couple mid-cure on conveyor near press
+    const tc=this.tire(M,0.48); tc.rotation.x=Math.PI/2; tc.position.set(1.4,0.9,3.4); scene.add(tc);
+
+    // ---- post-processing ----
+    const composer=new T.EffectComposer(renderer);
+    composer.addPass(new T.RenderPass(scene,camera));
+    const bloom=new T.UnrealBloomPass(new T.Vector2(w,h), 0.2, 0.55, 0.9);
+    composer.addPass(bloom);
+    const grain={ uniforms:{ tDiffuse:{value:null}, t:{value:0}, amount:{value:0.045} },
+      vertexShader:'varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }',
+      fragmentShader:'uniform sampler2D tDiffuse; uniform float t; uniform float amount; varying vec2 vUv; float rand(vec2 c){ return fract(sin(dot(c,vec2(12.9898,78.233)))*43758.5453); } void main(){ vec4 col=texture2D(tDiffuse,vUv); float n=rand(vUv+fract(t))*2.0-1.0; col.rgb+=n*amount; float d=distance(vUv,vec2(0.5)); float vig=smoothstep(0.95,0.42,d); col.rgb*=mix(0.7,1.0,vig); gl_FragColor=col; }' };
+    const grainPass=new T.ShaderPass(grain); this.grainPass=grainPass; composer.addPass(grainPass);
+
+    const controls=new T.OrbitControls(camera, renderer.domElement);
+    controls.enableDamping=true; controls.dampingFactor=0.08; controls.target.set(0,2,0);
+    controls.maxPolarAngle=Math.PI/2.08; controls.minDistance=6; controls.maxDistance=26;
+
+    this.scene=scene; this.camera=camera; this.renderer=renderer; this.composer=composer; this.controls=controls; this.bloom=bloom;
+    this._resize=()=>{ if(!this.mountRef.current) return; const W=this.mountRef.current.clientWidth, H=this.mountRef.current.clientHeight;
+      camera.aspect=W/H; camera.updateProjectionMatrix(); renderer.setSize(W,H); composer.setSize(W,H); };
+    window.addEventListener('resize', this._resize);
+
+    const animate=()=>{ this._raf=requestAnimationFrame(animate); controls.update(); if(this.grainPass) this.grainPass.uniforms.t.value=(performance.now()%1000)/1000; composer.render(); };
+    animate();
+    this.setState({loading:false});
+  }
+
+  dispose(){
+    if(this._poll) clearInterval(this._poll);
+    if(this._raf) cancelAnimationFrame(this._raf);
+    if(this._resize) window.removeEventListener('resize', this._resize);
+    if(this.renderer){ if(this.renderer.domElement && this.renderer.domElement.parentNode) this.renderer.domElement.parentNode.removeChild(this.renderer.domElement); this.renderer.dispose(); }
+    this.renderer=null;
+  }
+
+  renderVals(){ return { mountRef:this.mountRef, loading:this.state.loading }; }
+}
+</script>
+</body>
+</html>

@@ -42,7 +42,12 @@ MAX_LLM_ROUNDS = 3
 _TOKEN_CHUNK = 24
 
 _CITE_RE = re.compile(r"\[[^\[\]\n]{2,80}\]")
-_MACHINES = {"RC-07": "Curing", "CL-03": "Calendering", "MX-02": "Mixing"}
+_MACHINES = {"RC-07": "Curing", "CL-03": "Calendering", "MX-02": "Mixing",
+             "CP-01": "Curing", "CP-03": "Curing", "CP-10": "Curing"}
+# The UI hero card CP-07 is the physical curing press RC-07 in the store;
+# CP-01/03/10 are stored under their own ids (real FD001 replays). Everything
+# else in the hall is display-only ambiance with no stored telemetry.
+_UI_ALIAS = {"CP-07": "RC-07"}
 
 # --------------------------------------------------------------- system prompt
 # Spec voice: evidence-backed, context separation, stub honesty, provenance,
@@ -54,9 +59,16 @@ HARD RULES
 2. Context separation — background epoch-triage state (ticks, advisories, overrides under "background") and real-time tool outputs ("realtime") are different sources: do not blend them into one narrative unless the operator asks; say which is which.
 3. Stubs — get_pinn_reconstruction and get_camera_frame are not integrated: if they answer "physical subsystem not integrated", relay exactly that; never invent a reconstruction or a camera frame.
 4. You propose, never command — recommendations are options with trade-offs; the operator decides.
-5. Cite tool evidence inline like [run_diagnostic RC-07]; if you use a SITE CONTEXT extract below, cite its bracketed dossier tag, e.g. [site_dossier p.4].
-6. Answer shape — state the conclusion clearly FIRST, then the supporting evidence, plain professional language for a skilled non-engineer, under ~180 words.
-7. Do NOT write a "Data Provenance" section yourself — the platform appends the audited tool trail automatically.
+5. Ground every number in a tool result, but write for a shop-floor operator: everyday time ("just now", "a few minutes ago") — NEVER say "epoch", cycle counts or internal ids — and NO bracketed citations in the text.
+6. ANSWER THE QUESTION THAT WAS ASKED — the shape follows the question, never a fixed template:
+   - status / "why is it flagged?" → one-line verdict, then ONLY the readings that justify it.
+   - trend / history → that signal's movement (from → to, how fast, still moving or settled). Other signals only if they explain it.
+   - "what happens if…" / risk → the concrete consequences ahead (failure mode, what breaks, roughly when) from the causal matrix and RUL — NOT a re-dump of current readings.
+   - spec / limits → the limits themselves and where the machine sits against them.
+7. CONVERSATION MEMORY — if earlier turns of this conversation are provided, do not restate numbers you already gave unless they changed (then give old → new). Never repeat the same recommendation twice: if you already advised it, refer back in a few words ("still my advice") or say what changed.
+8. Under ~110 words. Bullets ("- ") only when listing 2+ distinct facts — a simple question deserves a plain sentence. End with a recommendation ONLY if the operator asked what to do, or a limit is being crossed right now and no advisory is pending; one line, offered as a choice.
+9. PLAIN TEXT ONLY — the console renders raw text, not markdown. Never use asterisks, underscores, backticks, or # headers for emphasis; they would show as literal symbols on the operator's screen. "- " bullets are the only formatting allowed.
+10. Do NOT write a "Sources" or "Data Provenance" section yourself — the platform adds the list of tools you consulted automatically.
 
 SITE CONTEXT (static dossier extracts — background reference, cite tags when used):
 {site_context}"""
@@ -103,8 +115,7 @@ class ToolCallingOperator:
                 if s.get("trend") != "stable":
                     top = f"; {name} {s['trend']} {s['change_pct']:+.1f}%"
                     break
-            er = result.get("epoch_range", ["?", "?"])
-            return f"{result.get('count')} readings E{er[0]}–E{er[1]}{top}"
+            return f"{result.get('count')} recent readings{top}"
         if tool == "run_diagnostic":
             hits = (result.get("realtime") or {}).get("out_of_limits") or []
             named = f" — {hits[0]['signal']} {hits[0]['kind']}" if hits else ""
@@ -129,18 +140,34 @@ class ToolCallingOperator:
         cut = text.find("Data Provenance")
         if cut > 0:
             text = text[:cut].rstrip(" \n-*#:")
+        # The console renders RAW text — markdown emphasis would show as
+        # literal ** stars **. Belt over rule 9: strip emphasis markers but
+        # keep "- " bullets (leading hyphens are real formatting here).
+        text = text.replace("**", "").replace("__", "")
+        text = re.sub(r"^#{1,4}\s*", "", text, flags=re.M)   # headers
+        text = re.sub(r"(?<![\w-])[*_](\S[^*_\n]*?)[*_](?![\w-])", r"\1", text)
+        text = re.sub(r"`([^`\n]*)`", r"\1", text)
         if not text:
-            text = ("I could not produce a narrative answer this turn — the audited "
-                    "tool trail below shows exactly what was checked.")
-        if provenance:
-            lines = [
-                f"- {p['tool']}({_fmt_params(p['params'])}) @ {p['at']} → "
-                + ("ok" if p["ok"] else f"ERROR: {p['summary'][:90]}")
-                for p in provenance
-            ]
-        else:
-            lines = ["- (no tools executed this turn — answer is unbacked, treat with care)"]
-        return text + "\n\nData Provenance:\n" + "\n".join(lines)
+            text = ("I couldn't put together an answer this turn — see the sources "
+                    "I checked below.")
+        # Operator-facing sources line (clean, plain-English names of the real
+        # tools consulted). The full machine-readable trail stays on the turn's
+        # `provenance` field for the audit log, not in the chat bubble.
+        pretty = {"run_diagnostic": "live diagnostic",
+                  "get_sensor_history": "sensor history",
+                  "analyze_drift": "drift analysis",
+                  "get_machine_spec": "machine limits",
+                  "verify_custody_chain": "data-integrity check",
+                  "get_pinn_reconstruction": "PINN reconstruction",
+                  "get_camera_frame": "camera"}
+        names: list[str] = []
+        for p in provenance:
+            nm = pretty.get(p["tool"], p["tool"])
+            if p["ok"] and nm not in names:
+                names.append(nm)
+        if names:  # plain text — no underscore italics (raw console, rule 9)
+            return text + "\n\nChecked: " + ", ".join(names) + "."
+        return text
 
     @staticmethod
     def _citations(content: str, provenance: list[dict]) -> list[str]:
@@ -160,10 +187,20 @@ class ToolCallingOperator:
         return {"type": "turn", "turn": {**turn.model_dump(), "provenance": provenance}}
 
     # ---------------------------------------------------------------- public
-    async def answer(self, question: str) -> tuple[OperatorTurn, list[dict]]:
-        """Non-streaming variant: returns (OperatorTurn, provenance)."""
+    async def answer(self, question: str,
+                     machine_hint: Optional[str] = None,
+                     history: Optional[list[dict]] = None
+                     ) -> tuple[OperatorTurn, list[dict]]:
+        """Non-streaming variant: returns (OperatorTurn, provenance).
+
+        machine_hint = the machine the operator is currently looking at, so
+        "how is it doing?" resolves to that press unless the question names
+        another one. history = prior turns of THIS conversation
+        ([{role: user|agent, content}] oldest→newest) so follow-ups don't
+        restate what was already said.
+        """
         turn_payload: Optional[dict] = None
-        async for ev in self.stream_events(question):
+        async for ev in self.stream_events(question, machine_hint, history):
             if ev.get("type") == "turn":
                 turn_payload = ev["turn"]
         assert turn_payload is not None  # stream always ends with a turn
@@ -172,22 +209,32 @@ class ToolCallingOperator:
             {k: v for k, v in turn_payload.items() if k != "provenance"})
         return turn, provenance
 
-    async def stream_events(self, question: str) -> AsyncIterator[dict]:
+    async def stream_events(self, question: str,
+                            machine_hint: Optional[str] = None,
+                            history: Optional[list[dict]] = None
+                            ) -> AsyncIterator[dict]:
         """Agent run as an event stream (see module docstring for the contract)."""
         question = (question or "").strip()
+        hint = self._resolve_hint(machine_hint)
         if settings.mock_mode:
-            async for ev in self._stream_mock(question):
+            async for ev in self._stream_mock(question, hint):
                 yield ev
             return
         try:
-            async for ev in self._stream_live(question):
+            async for ev in self._stream_live(question, hint, history):
                 yield ev
             return
         except Exception as e:  # noqa: BLE001 — live path must never kill the demo
             print(f"[operator_agent] live path failed ({type(e).__name__}: {e}); "
                   "falling back to mock plan")
-        async for ev in self._stream_mock(question):
+        async for ev in self._stream_mock(question, hint):
             yield ev
+
+    @staticmethod
+    def _resolve_hint(machine_hint: Optional[str]) -> str:
+        h = str(machine_hint or "").upper().strip()
+        h = _UI_ALIAS.get(h, h)
+        return h if h in _MACHINES else "RC-07"
 
     # ------------------------------------------------------------- LIVE path
     def _lc_tools(self):
@@ -248,29 +295,53 @@ class ToolCallingOperator:
                 verify_custody_chain, analyze_drift, get_pinn_reconstruction,
                 get_camera_frame]
 
-    async def _stream_live(self, question: str) -> AsyncIterator[dict]:
-        from langchain_core.messages import (HumanMessage, SystemMessage,
-                                             ToolMessage)
+    async def _stream_live(self, question: str, hint: str = "RC-07",
+                           history: Optional[list[dict]] = None
+                           ) -> AsyncIterator[dict]:
+        from langchain_core.messages import (AIMessage, HumanMessage,
+                                             SystemMessage, ToolMessage)
         from langchain_openai import ChatOpenAI
 
+        # Chat is conversational — latency matters more than deep reasoning.
+        # model_chat (default: the fast tier) keeps tool-calling but answers in
+        # seconds; CRUSOE_MODEL_CHAT pins a different model without code change.
+        _model = settings.model_chat or settings.model_fast
         kwargs: dict[str, Any] = dict(
-            model=settings.model_reasoning,
+            model=_model,
             base_url=settings.base_url,
             api_key=settings.api_key,
             temperature=0.1,          # spec: deterministic diagnosis voice
-            max_tokens=800,
-            timeout=75,
+            max_tokens=500,
+            timeout=45,
             max_retries=1,
         )
-        extra = thinking_off_extra_body(settings.model_reasoning)
+        extra = thinking_off_extra_body(_model)
         if extra:
             kwargs["extra_body"] = extra
         llm = ChatOpenAI(**kwargs)
         bound = llm.bind_tools(self._lc_tools())
 
         provenance: list[dict] = []
+        _dept = _MACHINES.get(hint, "Curing")
+        framing = (f"The operator is currently looking at machine {hint} "
+                   f"({_dept}). Unless they name another machine, 'it'/'this "
+                   f"machine' means {hint}. Call your tools with that machine_id.")
         messages: list[Any] = [SystemMessage(content=self._system()),
-                               HumanMessage(content=question)]
+                               SystemMessage(content=framing)]
+        # Prior turns of THIS conversation (rule 7: don't restate, don't
+        # re-recommend). UI names the hero press CP-07 — translate back so the
+        # model reasons about the store id it will query.
+        for h in (history or [])[-8:]:
+            txt = str(h.get("content") or h.get("text") or "").strip()[:700]
+            if not txt:
+                continue
+            for ui, real in _UI_ALIAS.items():
+                txt = txt.replace(ui, real)
+            role = str(h.get("role", "user")).lower()
+            messages.append(AIMessage(content=txt)
+                            if role in ("agent", "assistant", "ai")
+                            else HumanMessage(content=txt))
+        messages.append(HumanMessage(content=question))
         total_calls = 0
         final_text: Optional[str] = None
 
@@ -339,19 +410,21 @@ class ToolCallingOperator:
         return str(c)
 
     # ------------------------------------------------------------- MOCK path
-    def _machine_from(self, question: str) -> str:
+    def _machine_from(self, question: str, hint: str = "RC-07") -> str:
         q = (question or "").upper()
-        for mid in _MACHINES:
+        # an explicit machine named in the question always wins over the hint
+        for mid in list(_MACHINES) + list(_UI_ALIAS):
             if mid in q:
-                return mid
+                return _UI_ALIAS.get(mid, mid)
         for mid, dept in _MACHINES.items():
             if dept.upper() in q:
                 return mid
-        return "RC-07"  # the bottleneck press is the default subject
+        return hint or "RC-07"  # else the press the operator is looking at
 
-    def _plan(self, question: str) -> tuple[str, list[tuple[str, dict]]]:
+    def _plan(self, question: str, hint: str = "RC-07"
+              ) -> tuple[str, list[tuple[str, dict]]]:
         q = (question or "").lower()
-        mid = self._machine_from(question)
+        mid = self._machine_from(question, hint)
         plan: list[tuple[str, dict]] = [
             ("run_diagnostic", {"machine_id": mid}),
             ("get_sensor_history", {"machine_id": mid, "limit": 20}),
@@ -406,13 +479,11 @@ class ToolCallingOperator:
             else:
                 lines.append(f"Trend: {drift['verdict']} [analyze_drift {mid}]")
         if hist and hist.get("ok"):
-            er = hist.get("epoch_range", ["?", "?"])
             name, s = next(iter((hist.get("signal_summary") or {}).items()),
                            (None, None))
             if name:
-                lines.append(f"History: {hist['count']} readings E{er[0]}–E{er[1]}; "
-                             f"{name} spanned {s['min']}–{s['max']} "
-                             f"[get_sensor_history {mid}]")
+                lines.append(f"Recent history: {hist['count']} readings; "
+                             f"{name} ranged {s['min']}–{s['max']}.")
         if spec and spec.get("ok"):
             lines.append(f"Spec context: {spec['type']} — "
                          f"{spec['human_risk']} [get_machine_spec {mid}]")
@@ -439,8 +510,9 @@ class ToolCallingOperator:
             lines.append(f"{diag['verdict']['HOW']} — your call.")
         return "\n".join(lines)
 
-    async def _stream_mock(self, question: str) -> AsyncIterator[dict]:
-        mid, plan = self._plan(question)
+    async def _stream_mock(self, question: str, hint: str = "RC-07"
+                           ) -> AsyncIterator[dict]:
+        mid, plan = self._plan(question, hint)
         provenance: list[dict] = []
         results: dict[str, dict] = {}
         for name, params in plan:

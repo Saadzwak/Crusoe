@@ -110,6 +110,91 @@ def teams_card(n: dict) -> dict:
     }
 
 
+# Responsible-person routing (concept, filled with DEMO personas — see
+# ASSIGNMENTS below; NO real contacts hardcoded). In production each machine's
+# responsible operator would carry their own destination — a per-person Teams
+# chat/channel webhook, an @mention id, or an email — resolved here instead of
+# posting every alert to one shared channel. MVP: one TEAMS_WEBHOOK_URL, and we
+# name the assigned operator inside the card so the routing intent is visible.
+def workflows_message(n: dict) -> dict:
+    """Payload for a Microsoft Teams **Workflows** Incoming Webhook.
+
+    The old Office 365 *Connectors* webhook (the MessageCard in `teams_card`)
+    is retired (Microsoft, end-2025). The current path is a Power Automate /
+    Workflows flow ("Post to a channel when a webhook request is received"),
+    which accepts an **Adaptive Card** wrapped in the message/attachments
+    envelope below. Kept separate from teams_card so nothing legacy breaks.
+    """
+    mid = n.get("machine_id", "?")
+    sev = (n.get("severity") or "INFO").upper()
+    who = (n.get("to_operator") or {}).get("name") or "on-call operator"
+    facts = [
+        {"title": "Machine", "value": mid},
+        {"title": "Severity", "value": sev},
+        {"title": "Responsible", "value": who},
+    ]
+    if n.get("advisory_id"):
+        facts.append({"title": "Advisory", "value": f"#{n['advisory_id']}"})
+    body = [
+        {"type": "TextBlock", "size": "Large", "weight": "Bolder",
+         "color": "Attention" if sev in ("HIGH", "CRITICAL") else "Default",
+         "text": f"PRAETOR {sev} — {mid}"},
+        {"type": "TextBlock", "spacing": "None", "isSubtle": True,
+         "text": "Michelin Roanne · C3M curing line"},
+        {"type": "TextBlock", "wrap": True, "weight": "Bolder",
+         "text": n.get("title") or "Plant notification"},
+        {"type": "TextBlock", "wrap": True, "text": n.get("body", "")},
+        {"type": "FactSet", "facts": facts},
+    ]
+    card = {
+        "type": "AdaptiveCard",
+        "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+        "version": "1.4",
+        "body": body,
+        "actions": [{
+            "type": "Action.OpenUrl", "title": "Open operator console",
+            "url": f"{settings.public_app_url}#machine={mid}",
+        }],
+    }
+    return {"type": "message",
+            "attachments": [{
+                "contentType": "application/vnd.microsoft.card.adaptive",
+                "content": card,
+            }],
+            # Extra key (Teams ignores it): lets the SAME Power Automate flow
+            # add a "Create event (V4)" action and book the intervention slot
+            # on the responsible operator's / shared factory calendar —
+            # expressions like triggerBody()?['praetor_event']?['subject'].
+            "praetor_event": calendar_event(n)}
+
+
+def calendar_event(n: dict) -> dict:
+    """Intervention slot for the responsible operator's calendar.
+
+    Concept: the plant's SHARED calendar shows who is on which machine; with
+    one demo persona we book the responsible operator's own calendar. Times
+    are UTC (flow side picks Time zone = UTC); slot length is
+    CALENDAR_SLOT_MIN (default 45 min) starting now.
+    """
+    import datetime as _dt
+    mid = n.get("machine_id", "?")
+    sev = (n.get("severity") or "INFO").upper()
+    who = (n.get("to_operator") or {}).get("name") or "on-call operator"
+    start = _dt.datetime.now(_dt.timezone.utc)
+    end = start + _dt.timedelta(minutes=settings.calendar_slot_min)
+    fmt = "%Y-%m-%dT%H:%M:%S"
+    return {
+        "subject": f"PRAETOR {sev} — intervention {mid} ({who})",
+        "start": start.strftime(fmt),
+        "end": end.strftime(fmt),
+        "time_zone": "UTC",
+        "body": (f"{n.get('title', '')}\n{n.get('body', '')}\n\n"
+                 f"Responsible: {who}\nConsole: {settings.public_app_url}"
+                 f"#machine={mid}"),
+        "machine_id": mid, "severity": sev, "operator": who,
+    }
+
+
 # ================================================================== manager
 class InterventionManager:
     """One active intervention per machine; every transition is persisted to
@@ -146,18 +231,59 @@ class InterventionManager:
         self.publish("notify", n)
         self.store.log_event("notify", {
             "kind": n["kind"], "machine_id": n["machine_id"],
-            "severity": n.get("severity", ""), "title": n.get("title", "")})
+            "severity": n.get("severity", ""), "title": n.get("title", ""),
+            "to": (n.get("to_operator") or {}).get("name", "")})
         if settings.teams_webhook_url:
             self._spawn(self._post_teams(n))
+        # Second flow (optional): book the intervention slot on the
+        # responsible operator's calendar. The one-flow setup instead reads
+        # `praetor_event` from the Teams payload — no URL needed here.
+        if settings.calendar_webhook_url:
+            self._spawn(self._post_calendar(n))
+
+    async def _post_calendar(self, n: dict) -> None:
+        """Optional calendar-slot booking — never raises, never blocks."""
+        try:
+            import httpx
+            ev = calendar_event(n)
+            async with httpx.AsyncClient(timeout=6.0) as cli:
+                r = await cli.post(settings.calendar_webhook_url, json=ev)
+            if r.status_code < 300:
+                self.store.log_event("calendar", {
+                    "machine_id": ev["machine_id"], "to": ev["operator"],
+                    "start": ev["start"], "severity": ev["severity"]})
+                print(f"[operator_flow] calendar slot booked for "
+                      f"{ev['operator']} ({ev['machine_id']})")
+            else:
+                print(f"[operator_flow] calendar webhook returned "
+                      f"{r.status_code}: {r.text[:120]}")
+        except Exception as e:  # noqa: BLE001
+            print(f"[operator_flow] calendar webhook failed "
+                  f"({type(e).__name__}: {e}); Teams alert already delivered")
 
     async def _post_teams(self, n: dict) -> None:
-        """Optional real Teams card — never raises, never blocks the demo."""
+        """Optional real Teams alert — never raises, never blocks the demo.
+
+        Uses the current **Workflows** Adaptive-Card format (the legacy
+        Connectors MessageCard is retired). If someone still runs an old
+        connector URL, set TEAMS_WEBHOOK_LEGACY=1 to fall back to teams_card.
+        """
         try:
+            import os
+
             import httpx  # transitive dep of openai — always present
-            async with httpx.AsyncClient(timeout=5.0) as cli:
-                await cli.post(settings.teams_webhook_url, json=teams_card(n))
+            payload = (teams_card(n) if os.environ.get("TEAMS_WEBHOOK_LEGACY") == "1"
+                       else workflows_message(n))
+            async with httpx.AsyncClient(timeout=6.0) as cli:
+                r = await cli.post(settings.teams_webhook_url, json=payload)
+                if r.status_code >= 300:
+                    print(f"[operator_flow] Teams webhook returned {r.status_code}: "
+                          f"{r.text[:160]}")
+                else:
+                    print(f"[operator_flow] Teams alert delivered for "
+                          f"{n.get('machine_id')} ({n.get('severity')})")
         except Exception as e:  # noqa: BLE001
-            print(f"[operator_flow] Teams webhook failed ({type(e).__name__}); "
+            print(f"[operator_flow] Teams webhook failed ({type(e).__name__}: {e}); "
                   "in-app notification already delivered")
 
     # ------------------------------------------------------------ lifecycle
@@ -347,14 +473,41 @@ def build_factory_state(store: Any, manager: Optional[InterventionManager],
 
 # ================================================================ quick chat
 _QUICK_SYSTEM = (
-    "You are PRAETOR's line assistant on the Michelin Roanne UHP tyre line. "
-    "Answer the operator's question in under 120 words, plain language, "
-    "using ONLY the CONTEXT block. Cite every number with its bracketed "
-    "label, e.g. [sensor_history RC-07], [advisory ab12], [limits RC-07]. "
-    "You advise — the operator decides; never command. If the context does "
-    "not cover the question, say so plainly. End with one line starting "
-    "'Gaps:' naming what the context lacks."
+    "You are PRAETOR's line assistant on the Michelin Roanne curing line, "
+    "talking to a shop-floor operator who needs a fast, clear read.\n"
+    "Answer ONLY from the CONTEXT block. Never invent a number.\n\n"
+    "FORMAT (follow exactly):\n"
+    "- First line: the bottom line — is the machine OK or not, and how urgent, "
+    "in one short sentence.\n"
+    "- Then 2 to 4 bullet points starting with '- ', each one fact with its "
+    "number and what it means in plain words.\n"
+    "- If a value is dangerously past its limit (temperature, pressure or "
+    "vibration well over the max), say so bluntly and put it FIRST.\n"
+    "- Close with a one-line recommendation offered as a choice — you advise, "
+    "the operator decides. Never give an order.\n\n"
+    "RULES:\n"
+    "- Use everyday time like 'just now' or 'a few minutes ago' exactly as the "
+    "context gives it. NEVER say 'epoch', cycle numbers, ids or codes.\n"
+    "- No bracketed citations, no 'Data Provenance', no 'Gaps' line, no "
+    "jargon. Plain language a non-engineer reads in one pass.\n"
+    "- Keep it under 90 words total."
 )
+
+
+def _ago(ts: Any, now: float) -> str:
+    """Wall-clock reading age as plain operator language (never epochs)."""
+    try:
+        d = max(0.0, now - float(ts))
+    except (TypeError, ValueError):
+        return "moments ago"
+    if d < 8:
+        return "just now"
+    if d < 90:
+        return f"{int(round(d))} seconds ago"
+    m = d / 60.0
+    if m < 90:
+        return f"{int(round(m))} minutes ago"
+    return f"{int(round(m / 60.0))} hours ago"
 
 
 def _quick_context(machine_id: Optional[str], store: Any,
@@ -367,20 +520,35 @@ def _quick_context(machine_id: Optional[str], store: Any,
     blocks: list[str] = []
     citations: list[str] = []
     provenance: list[dict] = []
+    now = time.time()
 
-    rows = store.get_sensor_history(mid, limit=6)
+    rows = store.get_sensor_history(mid, limit=8)
     if rows:
-        lines = []
-        for r in rows[-3:]:
-            sig = ", ".join(f"{k}={v}" for k, v in r.get("signals", {}).items())
-            p = r.get("pinn", {}) or {}
-            lines.append(f"epoch {r.get('epoch')}: {sig} | "
-                         f"health={p.get('health_index')} rul={p.get('rul_cycles')}")
-        blocks.append(f"[sensor_history {mid}]\n" + "\n".join(lines))
+        latest = rows[-1]
+        sig = ", ".join(f"{k}={v}" for k, v in latest.get("signals", {}).items())
+        p = latest.get("pinn", {}) or {}
+        # latest reading in plain relative time (no epoch anywhere)
+        head = (f"Latest reading ({_ago(latest.get('at'), now)}): {sig} | "
+                f"health={p.get('health_index')} rul_cycles={p.get('rul_cycles')}")
+        # window trend: first vs last of the stored window, per signal
+        trend_bits = []
+        first = rows[0]
+        for k, v_last in (latest.get("signals") or {}).items():
+            v_first = (first.get("signals") or {}).get(k)
+            try:
+                if v_first is not None and abs(float(v_last) - float(v_first)) > 1e-9:
+                    arrow = "rising" if float(v_last) > float(v_first) else "falling"
+                    trend_bits.append(f"{k} {arrow} {float(v_first):g}->{float(v_last):g}")
+            except (TypeError, ValueError):
+                continue
+        span = _ago(first.get("at"), now)
+        trend = (f"\nOver the last few readings (since {span}): "
+                 + "; ".join(trend_bits)) if trend_bits else ""
+        blocks.append(f"[sensor_history {mid}]\n{head}{trend}")
         citations.append(f"sensor_history {mid}")
         provenance.append({"source": f"sensor_history {mid}",
                            "detail": f"{len(rows)} stored readings, latest "
-                                     f"epoch {rows[-1].get('epoch')}"})
+                                     f"{_ago(latest.get('at'), now)}"})
 
     adv = _latest_pending_advisory(store, mid)
     if adv is not None:
@@ -464,5 +632,6 @@ async def quick_answer(question: str, machine_id: Optional[str], store: Any,
 
 
 __all__ = ["OPERATORS", "ASSIGNMENTS", "assigned_operator", "teams_card",
+           "workflows_message", "calendar_event", "_notification",
            "InterventionManager", "build_factory_state", "stream_quick",
            "quick_answer"]

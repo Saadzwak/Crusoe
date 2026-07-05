@@ -61,8 +61,21 @@ class Settings:
     model_omni: str = field(
         default_factory=lambda: os.environ.get("CRUSOE_MODEL_OMNI", MODEL_OMNI_DEFAULT)
     )
+    # Operator chat lane — conversational answers must be snappy; empty means
+    # "use model_fast" (resolved at the call site so env can still pin one).
+    model_chat: str = field(
+        default_factory=lambda: os.environ.get("CRUSOE_MODEL_CHAT", "")
+    )
     hmac_secret: str = field(
         default_factory=lambda: os.environ.get("PINN_HMAC_SECRET", "")
+    )
+    # ==== INTEGRATION (demo 2026-07-05): TEMPORARY HMAC bypass ==============
+    # DEMO_SKIP_HMAC=1 skips signature VERIFICATION at the three gates (loop
+    # persistence, pipeline entry, echo tick) to shave demo latency. Signing
+    # and the whole mechanism remain intact; default is OFF (verification on).
+    # Remove the flag after the demo — never run a public deployment with it.
+    demo_skip_hmac: bool = field(
+        default_factory=lambda: os.environ.get("DEMO_SKIP_HMAC", "0") == "1"
     )
     backend_port: int = field(
         default_factory=lambda: int(os.environ.get("BACKEND_PORT", "8000"))
@@ -87,6 +100,16 @@ class Settings:
     )
     notify_cooldown_s: float = field(
         default_factory=lambda: float(os.environ.get("NOTIFY_COOLDOWN_S", "90"))
+    )
+    # Optional SECOND Power Automate flow that books the intervention slot on
+    # the responsible operator's (later: the shared factory) calendar. The
+    # one-flow setup needs no URL here — the Teams payload already embeds
+    # `praetor_event` for a "Create event (V4)" action in the same flow.
+    calendar_webhook_url: str = field(
+        default_factory=lambda: os.environ.get("CALENDAR_WEBHOOK_URL", "").strip()
+    )
+    calendar_slot_min: int = field(
+        default_factory=lambda: int(os.environ.get("CALENDAR_SLOT_MIN", "45"))
     )
     vlm_activity_delay_s: float = field(
         default_factory=lambda: float(os.environ.get("VLM_ACTIVITY_DELAY_S", "8"))

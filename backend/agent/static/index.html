@@ -1,470 +1,1621 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>PRAETOR · agent console</title>
-<!-- C3-toolchat-v1: chat panel shows live tool-call activity + collapsible Data Provenance -->
-<style>
-  :root{
-    --bg:#0b0e11; --panel:#12161b; --panel2:#171c22; --line:#232a32;
-    --ink:#d7dde4; --dim:#7d8894; --amber:#ffb000; --mono:ui-monospace,'Cascadia Mono','JetBrains Mono',Consolas,monospace;
-    --clear:#3fb950; --watch:#d29922; --high:#f0883e; --critical:#f85149; --blue:#58a6ff;
-  }
-  *{box-sizing:border-box; margin:0; padding:0;}
-  body{background:var(--bg); color:var(--ink); font-family:var(--mono); font-size:13px; height:100vh; display:flex; flex-direction:column; overflow:hidden;}
-
-  /* ---------- header ---------- */
-  header{display:flex; align-items:center; gap:14px; padding:10px 16px; border-bottom:1px solid var(--line); background:var(--panel);}
-  .logo{font-weight:700; letter-spacing:3px; color:var(--amber); font-size:15px;}
-  .logo span{color:var(--dim); font-weight:400; letter-spacing:1px; font-size:11px; margin-left:8px;}
-  .badge{padding:2px 9px; border-radius:3px; font-size:11px; font-weight:700; letter-spacing:1px; border:1px solid;}
-  .badge.mock{color:var(--watch); border-color:var(--watch); background:rgba(210,153,34,.08);}
-  .badge.live{color:var(--clear); border-color:var(--clear); background:rgba(63,185,80,.08);}
-  .badge.off{color:var(--dim); border-color:var(--dim);}
-  #epoch{color:var(--amber); font-weight:700;}
-  .spacer{flex:1;}
-  button{background:var(--panel2); border:1px solid var(--line); color:var(--ink); font-family:var(--mono); font-size:12px; padding:5px 12px; border-radius:3px; cursor:pointer;}
-  button:hover{border-color:var(--amber); color:var(--amber);}
-  button:disabled{opacity:.4; cursor:default;}
-  input[type=number]{width:52px; background:var(--panel2); border:1px solid var(--line); color:var(--ink); font-family:var(--mono); padding:4px 6px; border-radius:3px;}
-
-  /* ---------- layout ---------- */
-  main{flex:1; display:flex; min-height:0;}
-  #left{flex:1.5; display:flex; flex-direction:column; min-width:0; border-right:1px solid var(--line);}
-  #right{flex:1; display:flex; flex-direction:column; min-width:340px; max-width:520px;}
-  h2{font-size:11px; letter-spacing:2px; color:var(--dim); padding:9px 14px 7px; border-bottom:1px solid var(--line); background:var(--panel); position:sticky; top:0; z-index:2;}
-  h2 b{color:var(--amber);}
-
-  /* ---------- feed ---------- */
-  #feed{flex:1; overflow-y:auto; padding:8px 14px 24px;}
-  .tick{padding:4px 0; border-bottom:1px dashed #1a2027; color:var(--dim); display:flex; gap:8px; align-items:baseline; flex-wrap:wrap;}
-  .tick .ep{color:var(--amber); min-width:36px;}
-  .tick .mid{color:var(--ink); font-weight:700;}
-  .tick .arrow{color:var(--dim);}
-  .risk{font-weight:700;}
-  .risk.CLEAR{color:var(--clear);} .risk.WATCH{color:var(--watch);}
-  .risk.HIGH{color:var(--high);} .risk.CRITICAL{color:var(--critical);}
-  .risk.REJECTED{color:var(--critical); text-decoration:line-through;}
-  .tick .drafting{color:var(--blue); font-style:italic;}
-
-  /* ---------- advisory cards ---------- */
-  .card{border:1px solid var(--line); border-left:4px solid var(--dim); background:var(--panel); border-radius:4px; margin:10px 0; padding:12px 14px; animation:slidein .25s ease;}
-  @keyframes slidein{from{opacity:0; transform:translateY(-6px);} to{opacity:1;}}
-  .card.HIGH{border-left-color:var(--high);} .card.CRITICAL{border-left-color:var(--critical);}
-  .card.WATCH{border-left-color:var(--watch);} .card.CLEAR{border-left-color:var(--clear);}
-  .card .top{display:flex; gap:10px; align-items:center; flex-wrap:wrap;}
-  .sev{padding:1px 8px; border-radius:3px; font-size:11px; font-weight:700;}
-  .sev.HIGH{background:rgba(240,136,62,.15); color:var(--high);}
-  .sev.CRITICAL{background:rgba(248,81,73,.15); color:var(--critical);}
-  .sev.WATCH{background:rgba(210,153,34,.15); color:var(--watch);}
-  .sev.CLEAR{background:rgba(63,185,80,.15); color:var(--clear);}
-  .card .title{font-weight:700; color:var(--ink); font-size:13.5px;}
-  .card .mach{color:var(--dim); font-size:11px;}
-  .card .msg{margin:8px 0 4px; line-height:1.5; color:var(--ink);}
-  .card .just{color:var(--dim); font-size:12px; line-height:1.5; margin:4px 0; border-left:2px solid var(--line); padding-left:8px;}
-  .card .impact{display:flex; gap:14px; flex-wrap:wrap; margin:7px 0; font-size:12px;}
-  .card .impact div{color:var(--watch);} .card .impact div b{color:var(--dim); font-weight:400;}
-  details{margin:7px 0;}
-  summary{cursor:pointer; color:var(--blue); font-size:11.5px; user-select:none;}
-  .turn{margin:6px 0 6px 12px; padding:6px 9px; border-radius:3px; font-size:12px; line-height:1.45; background:var(--panel2);}
-  .turn .who{font-weight:700; font-size:10.5px; letter-spacing:1px;}
-  .turn.advocate .who{color:var(--clear);} .turn.skeptic .who{color:var(--high);}
-  .verdict{font-size:11.5px; color:var(--dim); margin-left:12px;}
-  .jury{display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin:8px 0; padding:7px 9px; background:var(--panel2); border-radius:3px; font-size:11.5px;}
-  .jury .stamp{font-weight:700; padding:1px 8px; border-radius:3px; border:1.5px solid;}
-  .jury .stamp.pass{color:var(--clear); border-color:var(--clear); transform:rotate(-2deg);}
-  .jury .stamp.flag{color:var(--critical); border-color:var(--critical); transform:rotate(-2deg);}
-  .jury .sc{color:var(--dim);} .jury .sc b{color:var(--ink);}
-  .actions{display:flex; gap:10px; margin-top:9px; align-items:center;}
-  .actions .accept{border-color:var(--clear); color:var(--clear);}
-  .actions .accept:hover{background:rgba(63,185,80,.12);}
-  .actions .overr{border-color:var(--critical); color:var(--critical);}
-  .actions .overr:hover{background:rgba(248,81,73,.12);}
-  .status-rib{font-size:11px; font-weight:700; letter-spacing:1px;}
-  .status-rib.accepted{color:var(--clear);} .status-rib.overridden{color:var(--critical);}
-  .ovr-reason{color:var(--dim); font-size:11.5px; font-style:italic;}
-
-  /* ---------- boss strip ---------- */
-  #boss{border-bottom:1px solid var(--line); background:var(--panel); padding:10px 14px; min-height:64px;}
-  #boss .lbl{font-size:10.5px; letter-spacing:2px; color:var(--dim); margin-bottom:5px;}
-  #bossText{font-size:12px; line-height:1.5; color:var(--ink);}
-  #deptChips{display:flex; gap:8px; margin-top:7px; flex-wrap:wrap;}
-  .dept{font-size:10.5px; padding:1px 8px; border-radius:3px; border:1px solid var(--line); color:var(--dim);}
-  .dept b{font-weight:700;}
-
-  /* ---------- chat ---------- */
-  #chat{flex:1; display:flex; flex-direction:column; min-height:0;}
-  #chatLog{flex:1; overflow-y:auto; padding:10px 14px;}
-  .bubble{margin:7px 0; padding:8px 11px; border-radius:5px; line-height:1.5; max-width:95%; white-space:pre-wrap; word-wrap:break-word;}
-  .bubble.op{background:#1b2430; border:1px solid #253141; margin-left:auto;}
-  .bubble.ag{background:var(--panel); border:1px solid var(--line);}
-  .bubble.ag .gaps{display:block; margin-top:6px; color:var(--watch); font-size:11.5px;}
-  .cites{display:flex; gap:6px; flex-wrap:wrap; margin-top:7px;}
-  .chip{font-size:10.5px; background:rgba(88,166,255,.1); border:1px solid rgba(88,166,255,.35); color:var(--blue); border-radius:10px; padding:1px 8px;}
-  /* C3-toolchat-v1: inline tool-call activity while the agent works */
-  .toolact{display:block; margin:0 0 6px; font-size:11.5px; color:var(--dim); white-space:normal;}
-  .toolact .tline{display:block; padding:1px 0; animation:slidein .2s ease;}
-  .toolact .tname{color:var(--blue);}
-  .toolact .tok{color:var(--clear); font-weight:700;}
-  .toolact .terr{color:var(--critical); font-weight:700;}
-  .toolact .tsum{color:var(--dim);}
-  /* C3-toolchat-v1: Data Provenance as a collapsible audit trail */
-  details.prov{margin:8px 0 0; border-top:1px dashed var(--line); padding-top:6px;}
-  details.prov summary{color:var(--dim); font-size:11px; letter-spacing:1px;}
-  details.prov summary:hover{color:var(--blue);}
-  details.prov pre{white-space:pre-wrap; font-size:10.5px; color:var(--dim); margin-top:5px; line-height:1.55; font-family:var(--mono);}
-  #chatForm{display:flex; gap:8px; padding:10px 14px; border-top:1px solid var(--line); background:var(--panel);}
-  #chatInput{flex:1; background:var(--panel2); border:1px solid var(--line); color:var(--ink); font-family:var(--mono); font-size:12.5px; padding:8px 10px; border-radius:3px;}
-  #chatInput:focus{outline:none; border-color:var(--amber);}
-  .cursor{display:inline-block; width:7px; height:13px; background:var(--amber); animation:blink .8s steps(1) infinite; vertical-align:text-bottom;}
-  @keyframes blink{50%{opacity:0;}}
-  ::-webkit-scrollbar{width:8px;} ::-webkit-scrollbar-thumb{background:#232a32; border-radius:4px;}
-</style>
+<link rel="icon" href="data:,">
+<script src="/static/support.js"></script>
 </head>
 <body>
+<x-dc>
+<helmet>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <script src="/static/vendor/three.min.js"></script>
+  <script src="/static/vendor/CopyShader.js"></script>
+  <script src="/static/vendor/LuminosityHighPassShader.js"></script>
+  <script src="/static/vendor/EffectComposer.js"></script>
+  <script src="/static/vendor/RenderPass.js"></script>
+  <script src="/static/vendor/ShaderPass.js"></script>
+  <script src="/static/vendor/UnrealBloomPass.js"></script>
+  <script src="/static/vendor/OrbitControls.js"></script>
+  <style>
+    *{box-sizing:border-box;}
+    html,body{margin:0;padding:0;height:100%;background:#0F1519;}
+    ::-webkit-scrollbar{width:9px;height:9px;}
+    ::-webkit-scrollbar-thumb{background:#2b3a43;border-radius:6px;}
+    ::-webkit-scrollbar-track{background:transparent;}
+    textarea:focus,button:focus{outline:none;}
+    @keyframes cw-pulse{0%,100%{opacity:1;}50%{opacity:.4;}}
+    @keyframes cw-slide{from{transform:translateX(30px);opacity:0;}to{transform:translateX(0);opacity:1;}}
+    @keyframes cw-up{from{transform:translateY(10px);opacity:0;}to{transform:translateY(0);opacity:1;}}
+    @keyframes cw-blink{0%,100%{opacity:.2;}50%{opacity:1;}}
+    @keyframes cw-fade{from{opacity:0;}to{opacity:1;}}
+    @keyframes cw-danger{0%,100%{box-shadow:0 0 0 0 rgba(240,82,75,.5);}50%{box-shadow:0 0 22px 4px rgba(240,82,75,.55);}}
+    @keyframes cw-dash{to{stroke-dashoffset:-28;}}
+  </style>
+</helmet>
+<div style="display:flex;flex-direction:column;height:100vh;width:100%;background:#0F1519;color:#EAF1F4;font-family:'IBM Plex Sans',system-ui,sans-serif;overflow:hidden;">
 
-<header>
-  <div class="logo">PRAETOR<span>AGENT CONSOLE · MICHELIN ROANNE · C3M LINE</span></div>
-  <span id="modeBadge" class="badge off">…</span>
-  <span id="pipeBadge" class="badge off" title="Builder A pipeline">PIPELINE ?</span>
-  <div class="spacer"></div>
-  <span>epoch <span id="epoch">0</span></span>
-  <label>every <input id="interval" type="number" value="5" min="1" max="60"> s</label>
-  <button id="btnStart">&#9654; start loop</button>
-  <button id="btnStop" disabled>&#9632; stop</button>
-</header>
-
-<main>
-  <section id="left">
-    <h2>LIVE AGENT FEED <b>— triage tiers · advisories · debate · jury</b></h2>
-    <div id="feed"></div>
-  </section>
-
-  <aside id="right">
-    <div id="boss">
-      <div class="lbl">BOSS SUMMARY — PLANT-WIDE <button id="btnPlant" style="float:right; font-size:10px; padding:2px 8px;">refresh</button></div>
-      <div id="bossText" style="color:var(--dim)">Awaiting first plant summary (auto every 5 epochs)…</div>
-      <div id="deptChips"></div>
-    </div>
-    <div id="chat">
-      <h2>OPERATOR CHAT <b>— tool-calling agent, audited provenance</b></h2>
-      <div id="chatLog">
-        <div class="bubble ag">Ask me about any machine — e.g. <i>"Why is RC-07 flagged?"</i> or <i>"Verify the custody chain on RC-07."</i><br>I call real tools in front of you; every answer ends with its Data Provenance trail. I advise, you decide.</div>
+  <div style="height:58px;flex:0 0 58px;display:flex;align-items:center;justify-content:space-between;padding:0 18px 0 16px;background:#131B21;border-bottom:1px solid #223038;">
+    <div style="display:flex;align-items:center;gap:12px;">
+      <div style="width:34px;height:34px;border-radius:7px;background:#182530;border:1px solid #2a3a44;display:flex;align-items:center;justify-content:center;">
+        <img src="/static/assets/prator_logo.jpeg" alt="PRAETOR" style="width:30px;height:30px;object-fit:cover;border-radius:6px;">
       </div>
-      <form id="chatForm">
-        <input id="chatInput" autocomplete="off" placeholder="Ask the line agent… (RC-07, CL-03, MX-02)">
-        <button type="submit">send</button>
-      </form>
+      <div style="line-height:1.1;">
+        <div style="font-size:14.5px;font-weight:700;letter-spacing:1.5px;">PRAETOR</div>
+        <div style="font-size:10.5px;color:#7f96a1;letter-spacing:.4px;">Press Digital Twin · Building A</div>
+      </div>
     </div>
-  </aside>
-</main>
+    <div style="display:flex;align-items:center;gap:16px;">
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:#9fb4bf;letter-spacing:.5px;">{{ clock }}</div>
+      <div style="display:flex;border:1px solid #2a3a44;border-radius:8px;overflow:hidden;">
+        <button onClick="{{ setRoleOperator }}" style="{{ roleOpStyle }}">OPERATOR</button>
+        <button onClick="{{ setRoleManager }}" style="{{ roleMgrStyle }}">MANAGER</button>
+      </div>
+      <div style="width:1px;height:24px;background:#26343d;"></div>
+      <div style="{{ alertPillStyle }}">
+        <div style="{{ alertDotStyle }}"></div>
+        <span>{{ alertText }}</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:9px;padding-left:4px;">
+        <div style="width:30px;height:30px;border-radius:50%;background:#20303a;border:1px solid #33454f;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;color:#b6c8d1;">OP</div>
+        <div style="line-height:1.15;">
+          <div style="font-size:11.5px;font-weight:600;">M. Okafor</div>
+          <div style="font-size:9.5px;color:#7f96a1;">Line Operator</div>
+        </div>
+      </div>
+    </div>
+  </div>
 
-<script>
-"use strict";
-const $ = (id) => document.getElementById(id);
-const feed = $("feed"), chatLog = $("chatLog");
-let maxEpoch = 0;
+  <div style="flex:1;display:flex;min-height:0;position:relative;">
 
-function el(tag, cls, text) {
-  const n = document.createElement(tag);
-  if (cls) n.className = cls;
-  if (text !== undefined) n.textContent = text;
-  return n;
-}
-function setEpoch(e) { if (e > maxEpoch) { maxEpoch = e; $("epoch").textContent = e; } }
-function scrollFeed() { feed.scrollTop = feed.scrollHeight; }
-function trimFeed() { while (feed.children.length > 250) feed.removeChild(feed.firstChild); }
+    <div style="width:74px;flex:0 0 74px;background:#111820;border-right:1px solid #223038;display:flex;flex-direction:column;align-items:center;padding-top:12px;gap:4px;">
+      <button onClick="{{ goFloor }}" style="{{ floorNavStyle }}">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 9l9-6 9 6v10a1 1 0 0 1-1 1h-4v-7H8v7H4a1 1 0 0 1-1-1z"/></svg>
+        <span style="font-size:9px;font-weight:600;letter-spacing:.5px;margin-top:3px;">FLOOR</span>
+      </button>
+      <button onClick="{{ goOverview }}" style="{{ overviewNavStyle }}">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></svg>
+        <span style="font-size:9px;font-weight:600;letter-spacing:.5px;margin-top:3px;">PLANT</span>
+      </button>
+      <button onClick="{{ goChat }}" style="{{ chatNavStyle }}">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M21 15a2 2 0 0 1-2 2H8l-5 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+        <span style="font-size:9px;font-weight:600;letter-spacing:.5px;margin-top:3px;">AGENT</span>
+      </button>
+      <button onClick="{{ goLog }}" style="{{ logNavStyle }}">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/><path d="M9 12h6M9 16h6"/></svg>
+        <span style="font-size:9px;font-weight:600;letter-spacing:.5px;margin-top:3px;">LOG</span>
+      </button>
+      <sc-if value="{{ isManager }}" hint-placeholder-val="{{ false }}">
+      <button onClick="{{ goFlow }}" style="{{ flowNavStyle }}">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="5" cy="12" r="2.2"/><circle cx="12" cy="5" r="2.2"/><circle cx="12" cy="19" r="2.2"/><circle cx="19" cy="12" r="2.2"/><path d="M7 11l3-4.5M7 13l3 4.5M14 6.5l3.5 4M14 17.5l3.5-4"/></svg>
+        <span style="font-size:9px;font-weight:600;letter-spacing:.5px;margin-top:3px;">FLOW</span>
+      </button>
+      </sc-if>
+    </div>
 
-/* ---------------- health / header ---------------- */
-async function refreshHealth() {
-  try {
-    const h = await (await fetch("/api/health")).json();
-    const mb = $("modeBadge");
-    mb.textContent = h.mode.toUpperCase();
-    mb.className = "badge " + (h.mode === "mock" ? "mock" : "live");
-    const pb = $("pipeBadge");
-    pb.textContent = h.pipeline_available ? "PIPELINE" : "TRIAGE-ECHO";
-    pb.className = "badge " + (h.pipeline_available ? "live" : "off");
-    $("btnStart").disabled = h.loop_running;
-    $("btnStop").disabled = !h.loop_running;
-    setEpoch(h.epoch);
-  } catch (e) { $("modeBadge").textContent = "OFFLINE"; }
-}
-$("btnStart").onclick = async () => {
-  const iv = parseFloat($("interval").value) || 5;
-  await fetch(`/api/loop/start?interval=${iv}`, { method: "POST" });
-  refreshHealth();
-};
-$("btnStop").onclick = async () => {
-  await fetch("/api/loop/stop", { method: "POST" });
-  refreshHealth();
-};
-$("btnPlant").onclick = () => fetch("/api/plant"); // result arrives via SSE "boss"
+    <div style="flex:1;position:relative;min-width:0;" data-screen-label="{{ activeView }}">
 
-/* ---------------- live feed: ticks ---------------- */
-function tickLine(t) {
-  const row = el("div", "tick");
-  row.append(el("span", "ep", "E" + t.epoch));
-  row.append(el("span", "mid", t.machine_id));
-  if (!t.hmac_verified) {
-    row.append(el("span", "risk REJECTED", "HMAC REJECTED"));
-    row.append(el("span", "", t.rejected_reason || ""));
-    return row;
+      <sc-if value="{{ isFloor }}" hint-placeholder-val="{{ true }}">
+        <div style="position:absolute;inset:0;" data-screen-label="Factory floor (3D)">
+          <div ref="{{ mountRef }}" style="position:absolute;inset:0;overflow:hidden;background:#0F1519;"></div>
+
+          <div style="position:absolute;top:18px;left:20px;pointer-events:none;">
+            <div style="font-size:11px;letter-spacing:1.5px;color:#7f96a1;font-weight:600;">FACTORY FLOOR</div>
+            <div style="font-size:20px;font-weight:700;margin-top:2px;">Curing Hall · 12 presses</div>
+            <div style="font-size:11.5px;color:#8aa0ab;margin-top:3px;">Click any press to inspect. Drag to orbit, scroll to zoom.</div>
+          </div>
+
+          <div style="position:absolute;top:18px;right:20px;background:rgba(19,27,33,.9);border:1px solid #26343d;border-radius:10px;padding:12px 14px;backdrop-filter:blur(6px);">
+            <div style="font-size:9.5px;letter-spacing:1px;color:#7f96a1;font-weight:600;margin-bottom:9px;">HEALTH STATUS</div>
+            <div style="display:flex;flex-direction:column;gap:8px;font-size:12px;">
+              <div style="display:flex;align-items:center;gap:9px;"><span style="width:11px;height:11px;border-radius:50%;background:#35C08A;box-shadow:0 0 8px #35C08A66;"></span><span style="color:#c4d3da;">Healthy</span><span style="margin-left:auto;font-family:'IBM Plex Mono',monospace;color:#eaf1f4;font-weight:600;">{{ greenCount }}</span></div>
+              <div style="display:flex;align-items:center;gap:9px;"><span style="width:11px;height:11px;border-radius:50%;background:#F0B23E;box-shadow:0 0 8px #F0B23E66;"></span><span style="color:#c4d3da;">Watch</span><span style="margin-left:auto;font-family:'IBM Plex Mono',monospace;color:#eaf1f4;font-weight:600;">{{ yellowCount }}</span></div>
+              <div style="display:flex;align-items:center;gap:9px;"><span style="width:11px;height:11px;border-radius:50%;background:#F0524B;box-shadow:0 0 8px #F0524B66;"></span><span style="color:#c4d3da;">Alert</span><span style="margin-left:auto;font-family:'IBM Plex Mono',monospace;color:#eaf1f4;font-weight:600;">{{ redCount }}</span></div>
+            </div>
+          </div>
+
+          <div style="position:absolute;bottom:20px;left:20px;background:rgba(19,27,33,.94);border:1px solid #26343d;border-radius:12px;padding:14px 15px;width:284px;backdrop-filter:blur(6px);">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:11px;">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#F0B23E" stroke-width="1.8"><path d="M12 9v4M12 17h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>
+              <span style="font-size:11px;letter-spacing:1px;color:#e8b657;font-weight:700;">FAULT INJECTION · DEMO</span>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:8px;">
+              <button onClick="{{ injectThermal }}" style="{{ thermalBtnStyle }}"><span style="width:8px;height:8px;border-radius:50%;background:#F0524B;flex:0 0 auto;"></span><span style="flex:1;text-align:left;">Thermal drift — CP-07</span></button>
+              <button onClick="{{ injectBearing }}" style="{{ bearingBtnStyle }}"><span style="width:8px;height:8px;border-radius:50%;background:#F0B23E;flex:0 0 auto;"></span><span style="flex:1;text-align:left;">Bearing wear — CP-07</span></button>
+              <button onClick="{{ resetFault }}" style="{{ resetBtnStyle }}"><span style="width:8px;height:8px;border-radius:50%;background:#35C08A;flex:0 0 auto;"></span><span style="flex:1;text-align:left;">Reset to normal</span></button>
+            </div>
+          </div>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ isOverview }}" hint-placeholder-val="{{ true }}">
+        <div style="position:absolute;inset:0;overflow-y:auto;overflow-x:hidden;padding:30px 34px 46px;background:#0F1519;" data-screen-label="Plant overview">
+          <div style="font-size:11px;letter-spacing:2px;color:#C8556A;font-weight:700;">PLANT OVERVIEW</div>
+          <div style="font-size:24px;font-weight:700;margin-top:3px;margin-bottom:24px;color:#EAF1F4;letter-spacing:.3px;">Curing Hall — all presses</div>
+
+          <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:18px;">
+            <sc-for list="{{ kpis }}" as="k" hint-placeholder-count="4">
+              <div style="background:#141D24;border:1px solid #223038;border-radius:12px;padding:18px 20px;">
+                <div style="font-size:10.5px;letter-spacing:.6px;color:#7f96a1;font-weight:600;text-transform:uppercase;">{{ k.label }}</div>
+                <div style="font-family:'IBM Plex Mono',monospace;font-size:29px;font-weight:600;margin-top:9px;color:#EAF1F4;">{{ k.value }}</div>
+                <div style="font-size:11px;color:#8aa0ab;margin-top:4px;">{{ k.sub }}</div>
+              </div>
+            </sc-for>
+          </div>
+
+          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:32px;">
+            <div style="background:#141D24;border:1px solid #223038;border-radius:12px;padding:18px 20px;display:flex;align-items:center;justify-content:space-between;">
+              <div style="display:flex;align-items:center;gap:12px;">
+                <span style="width:12px;height:12px;border-radius:50%;background:#1E9E62;box-shadow:0 0 0 4px #1E9E6220;"></span>
+                <div><div style="font-size:13px;color:#EAF1F4;font-weight:600;">Healthy</div><div style="font-size:12px;color:#98A0A6;margin-top:1px;">Inside cure window</div></div>
+              </div>
+              <div style="font-family:'IBM Plex Mono',monospace;font-size:36px;font-weight:600;color:#1E9E62;">{{ greenCount }}</div>
+            </div>
+            <div style="background:#141D24;border:1px solid #223038;border-radius:12px;padding:18px 20px;display:flex;align-items:center;justify-content:space-between;">
+              <div style="display:flex;align-items:center;gap:12px;">
+                <span style="width:12px;height:12px;border-radius:50%;background:#C6881B;box-shadow:0 0 0 4px #C6881B20;"></span>
+                <div><div style="font-size:13px;color:#EAF1F4;font-weight:600;">Watch</div><div style="font-size:12px;color:#98A0A6;margin-top:1px;">Trending signal</div></div>
+              </div>
+              <div style="font-family:'IBM Plex Mono',monospace;font-size:36px;font-weight:600;color:#C6881B;">{{ yellowCount }}</div>
+            </div>
+            <div style="background:#141D24;border:1px solid #223038;border-radius:12px;padding:18px 20px;display:flex;align-items:center;justify-content:space-between;">
+              <div style="display:flex;align-items:center;gap:12px;">
+                <span style="width:12px;height:12px;border-radius:50%;background:#CF3A34;box-shadow:0 0 0 4px #CF3A3420;"></span>
+                <div><div style="font-size:13px;color:#EAF1F4;font-weight:600;">Active alert</div><div style="font-size:12px;color:#98A0A6;margin-top:1px;">Needs a decision</div></div>
+              </div>
+              <div style="font-family:'IBM Plex Mono',monospace;font-size:36px;font-weight:600;color:#CF3A34;">{{ redCount }}</div>
+            </div>
+          </div>
+
+          <div style="font-size:12px;letter-spacing:1.2px;color:#8A949C;font-weight:600;margin-bottom:14px;">ALL MACHINES</div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(226px,1fr));gap:14px;">
+            <sc-for list="{{ overviewMachines }}" as="m" hint-placeholder-count="12">
+              <button onClick="{{ m.select }}" style="{{ m.cardStyle }}" style-hover="border-color:#3a4b55;transform:translateY(-1px);">
+                <div style="display:flex;align-items:center;justify-content:space-between;">
+                  <span style="font-family:'IBM Plex Mono',monospace;font-size:15px;font-weight:600;color:#EAF1F4;">{{ m.name }}</span>
+                  <span style="{{ m.lightPill }}">{{ m.statusLabel }}</span>
+                </div>
+                <div style="font-size:11.5px;color:#8A949C;margin-top:4px;">{{ m.type }}</div>
+                <div style="height:1px;background:#223038;margin:14px 0 12px;"></div>
+                <div style="display:flex;align-items:flex-end;justify-content:space-between;">
+                  <div><div style="font-size:10.5px;color:#98A0A6;">{{ m.metricLabel }}</div><div style="font-family:'IBM Plex Mono',monospace;font-size:17px;font-weight:600;margin-top:2px;color:{{ m.metricColorLight }};">{{ m.metricValue }}</div></div>
+                  <div style="text-align:right;"><div style="font-size:10.5px;color:#98A0A6;">Health</div><div style="font-family:'IBM Plex Mono',monospace;font-size:17px;font-weight:600;margin-top:2px;color:#c4d3da;">{{ m.healthPct }}</div></div>
+                </div>
+              </button>
+            </sc-for>
+          </div>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ isChat }}" hint-placeholder-val="{{ true }}">
+        <div style="position:absolute;inset:0;display:flex;flex-direction:column;" data-screen-label="Agent chat">
+          <div style="flex:0 0 auto;padding:16px 24px;border-bottom:1px solid #223038;display:flex;align-items:center;gap:12px;background:#131B21;">
+            <div style="width:34px;height:34px;border-radius:9px;background:#2A141A;border:1px solid #5A2530;display:flex;align-items:center;justify-content:center;">
+              <div style="width:9px;height:9px;border-radius:50%;background:#B23A48;box-shadow:0 0 9px #B23A48;"></div>
+            </div>
+            <div>
+              <div style="font-size:14.5px;font-weight:700;">Monitoring Agent</div>
+              <div style="font-size:11px;color:#8aa0ab;">Grounded in live press data · context: CP-07</div>
+            </div>
+          </div>
+
+          <div ref="{{ chatRef }}" style="flex:1;overflow-y:auto;overflow-x:hidden;min-width:0;padding:22px 24px;display:flex;flex-direction:column;gap:16px;">
+            <sc-for list="{{ messages }}" as="msg" hint-placeholder-count="1">
+              <div style="{{ msg.rowStyle }}">
+                <div style="{{ msg.bubbleStyle }}">
+                  <div style="{{ msg.textStyle }}">{{ msg.text }}</div>
+                  <sc-if value="{{ msg.showData }}">
+                    <div style="margin-top:11px;background:#0f1519;border:1px solid #24333c;border-radius:9px;padding:11px 12px;">
+                      <div style="display:flex;align-items:center;gap:7px;margin-bottom:8px;"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#B23A48" stroke-width="2"><path d="M3 3v18h18"/><path d="M7 14l4-4 3 3 5-6"/></svg><span style="font-size:10px;letter-spacing:.8px;color:#7f96a1;font-weight:600;">{{ msg.chartLabel }}</span></div>
+                      <div>{{ msg.chart }}</div>
+                      <div style="display:flex;align-items:center;gap:6px;margin-top:7px;"><span style="width:16px;height:0;border-top:1.5px dashed #B23A48;display:inline-block;"></span><span style="font-size:9.5px;color:#7f96a1;font-family:'IBM Plex Mono',monospace;">156 °C cure setpoint</span></div>
+                    </div>
+                  </sc-if>
+                </div>
+              </div>
+            </sc-for>
+            <sc-if value="{{ isTyping }}">
+              <div style="display:flex;justify-content:flex-start;">
+                <div style="background:#182530;border:1px solid #24333c;border-radius:12px;padding:13px 16px;display:flex;gap:5px;align-items:center;">
+                  <span style="width:7px;height:7px;border-radius:50%;background:#B23A48;animation:cw-blink 1s infinite;"></span>
+                  <span style="width:7px;height:7px;border-radius:50%;background:#B23A48;animation:cw-blink 1s infinite .2s;"></span>
+                  <span style="width:7px;height:7px;border-radius:50%;background:#B23A48;animation:cw-blink 1s infinite .4s;"></span>
+                </div>
+              </div>
+            </sc-if>
+          </div>
+
+          <div style="flex:0 0 auto;padding:14px 24px 18px;border-top:1px solid #223038;background:#131B21;">
+            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:11px;">
+              <sc-for list="{{ chips }}" as="c" hint-placeholder-count="3">
+                <button onClick="{{ c.send }}" style="background:#1a2831;border:1px solid #2b3d47;color:#b6c8d1;font-family:'IBM Plex Sans',sans-serif;font-size:12px;padding:7px 12px;border-radius:20px;cursor:pointer;" style-hover="background:#2C1A20;border-color:#6E3A44;color:#eaf1f4;">{{ c.label }}</button>
+              </sc-for>
+            </div>
+            <div style="display:flex;gap:10px;align-items:flex-end;">
+              <textarea rows="1" value="{{ chatInput }}" onChange="{{ onChatInput }}" onKeyDown="{{ onChatKey }}" placeholder="Ask the agent about a press…" style="flex:1;resize:none;background:#0f1519;border:1px solid #2b3d47;border-radius:11px;color:#eaf1f4;font-family:'IBM Plex Sans',sans-serif;font-size:14px;padding:13px 14px;min-height:48px;max-height:120px;line-height:1.4;"></textarea>
+              <button onClick="{{ sendChat }}" style="width:48px;height:48px;flex:0 0 auto;background:#B23A48;border:none;border-radius:11px;cursor:pointer;display:flex;align-items:center;justify-content:center;" style-hover="background:#C85566;">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#0f1519" stroke-width="2.2"><path d="M22 2 11 13M22 2l-7 20-4-9-9-4z"/></svg>
+              </button>
+            </div>
+          </div>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ isLog }}" hint-placeholder-val="{{ true }}">
+        <div style="position:absolute;inset:0;overflow-y:auto;padding:26px 30px;background:#0F1519;" data-screen-label="Decision history">
+          <div style="font-size:11px;letter-spacing:1.5px;color:#7f96a1;font-weight:600;">DECISION HISTORY</div>
+          <div style="font-size:20px;font-weight:700;margin:2px 0 4px;">What the agent proposed &amp; what the operator did</div>
+          <div style="font-size:12px;color:#8aa0ab;margin-bottom:20px;">Full audit trail for the site manager — newest first.</div>
+          <sc-if value="{{ historyEmpty }}" hint-placeholder-val="{{ false }}">
+            <div style="color:#6f8792;font-size:13px;padding:22px 0;">No operator decisions logged yet. Accept or override an alert and it appears here.</div>
+          </sc-if>
+          <sc-for list="{{ historyEntries }}" as="h" hint-placeholder-count="3">
+            <div style="{{ h.rowStyle }}">
+              <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;">
+                <div style="display:flex;align-items:center;gap:9px;">
+                  <span style="{{ h.decPill }}">{{ h.decLabel }}</span>
+                  <span style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:#eaf1f4;">{{ h.machine }}</span>
+                  <span style="{{ h.sevPill }}">{{ h.sev }}</span>
+                </div>
+                <span style="font-size:11px;color:#7f96a1;">{{ h.ago }}</span>
+              </div>
+              <div style="font-size:13px;color:#c4d3da;margin-top:9px;"><span style="color:#7f96a1;">Agent proposed:</span> {{ h.proposed }}</div>
+              <div style="font-size:12.5px;color:#aebcc4;margin-top:4px;"><span style="color:#7f96a1;">Recommended action:</span> {{ h.action }}</div>
+              <sc-if value="{{ h.hasReason }}" hint-placeholder-val="{{ false }}">
+                <div style="font-size:12.5px;color:#aebcc4;margin-top:4px;"><span style="color:#7f96a1;">Operator note:</span> {{ h.reason }}</div>
+              </sc-if>
+            </div>
+          </sc-for>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ isFlow }}" hint-placeholder-val="{{ true }}">
+        <div style="position:absolute;inset:0;overflow-y:auto;padding:26px 30px;background:#0F1519;" data-screen-label="Information flow">
+          <div style="font-size:11px;letter-spacing:1.5px;color:#7f96a1;font-weight:600;">INFORMATION LAYER</div>
+          <div style="font-size:20px;font-weight:700;margin:2px 0 4px;">Information flow across the line — live</div>
+          <div style="font-size:12px;color:#8aa0ab;margin-bottom:14px;">Machines at the bottom, agent stations in the middle, boss &amp; humans on top. An edge lights up only when that hop REALLY happened (shared-store flight recorder) — nothing simulated.</div>
+          <div style="{{ flowModeStyle }}">{{ flowModeLabel }}</div>
+          <sc-if value="{{ flowHasBlocked }}" hint-placeholder-val="{{ false }}">
+            <div style="display:flex;align-items:center;gap:10px;background:#F0524B18;border:1.5px solid #F0524B;border-radius:10px;padding:11px 14px;margin-bottom:16px;">
+              <span style="font-size:15px;">&#9888;</span>
+              <div>
+                <div style="font-size:11px;font-weight:700;letter-spacing:.8px;color:#F0524B;">MESSAGE BLOCKED HERE</div>
+                <div style="font-size:12.5px;color:#eac7c5;margin-top:2px;">{{ flowBlockedLabel }}</div>
+              </div>
+            </div>
+          </sc-if>
+
+          <div style="background:#10171d;border:1px solid #1c2830;border-radius:14px;padding:10px 12px 4px;margin-bottom:8px;">
+          <svg viewBox="0 0 1000 526" style="width:100%;max-width:1120px;display:block;margin:0 auto;" xmlns="http://www.w3.org/2000/svg">
+            <line x1="90" y1="448" x2="430" y2="376" style="{{ eM0 }}"></line>
+            <line x1="250" y1="448" x2="458" y2="376" style="{{ eM1 }}"></line>
+            <line x1="410" y1="448" x2="486" y2="376" style="{{ eM2 }}"></line>
+            <line x1="570" y1="448" x2="514" y2="376" style="{{ eM3 }}"></line>
+            <line x1="730" y1="448" x2="542" y2="376" style="{{ eM4 }}"></line>
+            <line x1="890" y1="448" x2="570" y2="376" style="{{ eM5 }}"></line>
+            <line x1="440" y1="330" x2="185" y2="256" style="{{ eGT }}"></line>
+            <line x1="234" y1="233" x2="271" y2="233" style="{{ eTD }}"></line>
+            <line x1="399" y1="233" x2="436" y2="233" style="{{ eDD }}"></line>
+            <line x1="564" y1="233" x2="601" y2="233" style="{{ eDJ }}"></line>
+            <line x1="729" y1="233" x2="766" y2="233" style="{{ eJA }}"></line>
+            <line x1="800" y1="210" x2="540" y2="116" style="{{ eAB }}"></line>
+            <line x1="818" y1="210" x2="760" y2="116" style="{{ eAO }}"></line>
+            <line x1="790" y1="116" x2="846" y2="210" style="{{ eOA }}"></line>
+            <line x1="862" y1="210" x2="912" y2="116" style="{{ eAN }}"></line>
+
+            <rect x="436" y="70" width="128" height="46" rx="9" style="{{ nBOSS }}"></rect>
+            <text x="500" y="90" text-anchor="middle" style="font-family:'IBM Plex Mono',monospace;font-size:12.5px;font-weight:700;fill:#EAF1F4;">BOSS</text>
+            <text x="500" y="106" text-anchor="middle" style="font-size:9px;fill:#7f96a1;">plant summary</text>
+            <rect x="698" y="70" width="128" height="46" rx="9" style="{{ nOPERATOR }}"></rect>
+            <text x="762" y="90" text-anchor="middle" style="font-family:'IBM Plex Mono',monospace;font-size:12.5px;font-weight:700;fill:#EAF1F4;">OPERATOR</text>
+            <text x="762" y="106" text-anchor="middle" style="font-size:9px;fill:#7f96a1;">human decision</text>
+            <rect x="856" y="70" width="128" height="46" rx="9" style="{{ nNOTIFY }}"></rect>
+            <text x="920" y="90" text-anchor="middle" style="font-family:'IBM Plex Mono',monospace;font-size:12.5px;font-weight:700;fill:#EAF1F4;">NOTIFY</text>
+            <text x="920" y="106" text-anchor="middle" style="font-size:9px;fill:#7f96a1;">Teams page</text>
+
+            <rect x="106" y="210" width="128" height="46" rx="9" style="{{ nTRIAGE }}"></rect>
+            <text x="170" y="230" text-anchor="middle" style="font-family:'IBM Plex Mono',monospace;font-size:12.5px;font-weight:700;fill:#EAF1F4;">TRIAGE</text>
+            <text x="170" y="246" text-anchor="middle" style="font-size:9px;fill:#7f96a1;">3-tier screen</text>
+            <rect x="271" y="210" width="128" height="46" rx="9" style="{{ nDRAFT }}"></rect>
+            <text x="335" y="230" text-anchor="middle" style="font-family:'IBM Plex Mono',monospace;font-size:12.5px;font-weight:700;fill:#EAF1F4;">DRAFT</text>
+            <text x="335" y="246" text-anchor="middle" style="font-size:9px;fill:#7f96a1;">line agent</text>
+            <rect x="436" y="210" width="128" height="46" rx="9" style="{{ nDEBATE }}"></rect>
+            <text x="500" y="230" text-anchor="middle" style="font-family:'IBM Plex Mono',monospace;font-size:12.5px;font-weight:700;fill:#EAF1F4;">DEBATE</text>
+            <text x="500" y="246" text-anchor="middle" style="font-size:9px;fill:#7f96a1;">advocate vs skeptic</text>
+            <rect x="601" y="210" width="128" height="46" rx="9" style="{{ nJURY }}"></rect>
+            <text x="665" y="230" text-anchor="middle" style="font-family:'IBM Plex Mono',monospace;font-size:12.5px;font-weight:700;fill:#EAF1F4;">JURY</text>
+            <text x="665" y="246" text-anchor="middle" style="font-size:9px;fill:#7f96a1;">quality gate</text>
+            <rect x="766" y="210" width="128" height="46" rx="9" style="{{ nADVISORY }}"></rect>
+            <text x="830" y="230" text-anchor="middle" style="font-family:'IBM Plex Mono',monospace;font-size:12.5px;font-weight:700;fill:#EAF1F4;">ADVISORY</text>
+            <text x="830" y="246" text-anchor="middle" style="font-size:9px;fill:#7f96a1;">shared store</text>
+
+            <rect x="415" y="330" width="170" height="46" rx="9" style="{{ nGATE }}"></rect>
+            <text x="500" y="350" text-anchor="middle" style="font-family:'IBM Plex Mono',monospace;font-size:12.5px;font-weight:700;fill:#EAF1F4;">HMAC GATE</text>
+            <text x="500" y="366" text-anchor="middle" style="font-size:9px;fill:#7f96a1;">custody check on every reading</text>
+
+            <rect x="22" y="448" width="136" height="58" rx="10" style="{{ mBox0 }}"></rect>
+            <circle cx="44" cy="470" r="4.5" style="{{ mDot0 }}"></circle>
+            <text x="56" y="474" style="font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:700;fill:#EAF1F4;">CP-07</text>
+            <text x="90" y="493" text-anchor="middle" style="font-size:9px;fill:#7f96a1;">{{ mAgo0 }}</text>
+            <rect x="182" y="448" width="136" height="58" rx="10" style="{{ mBox1 }}"></rect>
+            <circle cx="204" cy="470" r="4.5" style="{{ mDot1 }}"></circle>
+            <text x="216" y="474" style="font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:700;fill:#EAF1F4;">CP-01</text>
+            <text x="250" y="493" text-anchor="middle" style="font-size:9px;fill:#7f96a1;">{{ mAgo1 }}</text>
+            <rect x="342" y="448" width="136" height="58" rx="10" style="{{ mBox2 }}"></rect>
+            <circle cx="364" cy="470" r="4.5" style="{{ mDot2 }}"></circle>
+            <text x="376" y="474" style="font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:700;fill:#EAF1F4;">CP-03</text>
+            <text x="410" y="493" text-anchor="middle" style="font-size:9px;fill:#7f96a1;">{{ mAgo2 }}</text>
+            <rect x="502" y="448" width="136" height="58" rx="10" style="{{ mBox3 }}"></rect>
+            <circle cx="524" cy="470" r="4.5" style="{{ mDot3 }}"></circle>
+            <text x="536" y="474" style="font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:700;fill:#EAF1F4;">CP-10</text>
+            <text x="570" y="493" text-anchor="middle" style="font-size:9px;fill:#7f96a1;">{{ mAgo3 }}</text>
+            <rect x="662" y="448" width="136" height="58" rx="10" style="{{ mBox4 }}"></rect>
+            <circle cx="684" cy="470" r="4.5" style="{{ mDot4 }}"></circle>
+            <text x="696" y="474" style="font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:700;fill:#EAF1F4;">CL-03</text>
+            <text x="730" y="493" text-anchor="middle" style="font-size:9px;fill:#7f96a1;">{{ mAgo4 }}</text>
+            <rect x="822" y="448" width="136" height="58" rx="10" style="{{ mBox5 }}"></rect>
+            <circle cx="844" cy="470" r="4.5" style="{{ mDot5 }}"></circle>
+            <text x="856" y="474" style="font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:700;fill:#EAF1F4;">MX-02</text>
+            <text x="890" y="493" text-anchor="middle" style="font-size:9px;fill:#7f96a1;">{{ mAgo5 }}</text>
+          </svg>
+          <div style="display:flex;gap:16px;align-items:center;padding:6px 6px 8px;flex-wrap:wrap;">
+            <span style="font-size:9.5px;letter-spacing:.8px;color:#5f7682;font-weight:700;">LEGEND</span>
+            <span style="display:flex;align-items:center;gap:5px;font-size:10.5px;color:#8aa0ab;"><span style="width:14px;height:2px;background:#35C08A;display:inline-block;"></span>message OK</span>
+            <span style="display:flex;align-items:center;gap:5px;font-size:10.5px;color:#8aa0ab;"><span style="width:14px;height:2px;background:#F0B23E;display:inline-block;"></span>HIGH / escalated</span>
+            <span style="display:flex;align-items:center;gap:5px;font-size:10.5px;color:#8aa0ab;"><span style="width:14px;height:2px;background:#F0524B;display:inline-block;"></span>blocked / rejected</span>
+            <span style="display:flex;align-items:center;gap:5px;font-size:10.5px;color:#8aa0ab;"><span style="width:14px;height:2px;background:#26343d;display:inline-block;"></span>idle</span>
+          </div>
+          </div>
+
+          <div style="font-size:10.5px;letter-spacing:1.2px;color:#5f7682;font-weight:700;margin:14px 0 8px;">MESSAGE LOG — NEWEST FIRST (trace any hop back to its source)</div>
+          <sc-if value="{{ flowFeedEmpty }}" hint-placeholder-val="{{ false }}">
+            <div style="color:#6f8792;font-size:13px;padding:14px 0;">No agent traffic right now — the LLM layer engages when telemetry leaves the envelope (run a fault from the Floor view to watch messages travel).</div>
+          </sc-if>
+          <sc-for list="{{ flowFeed }}" as="f" hint-placeholder-count="4">
+            <div style="{{ f.rowStyle }}">
+              <div style="{{ f.dotStyle }}"></div>
+              <span style="font-family:'IBM Plex Mono',monospace;font-size:11.5px;color:#eaf1f4;min-width:56px;">{{ f.machine }}</span>
+              <span style="font-family:'IBM Plex Mono',monospace;font-size:10.5px;color:#5f7682;min-width:150px;">{{ f.route }}</span>
+              <span style="font-size:12.5px;color:#c4d3da;flex:1;">{{ f.label }}</span>
+              <span style="font-size:10.5px;color:#7f96a1;white-space:nowrap;">{{ f.ago }}</span>
+            </div>
+          </sc-for>
+        </div>
+      </sc-if>
+
+    </div>
+
+    <sc-if value="{{ showDrawer }}" hint-placeholder-val="{{ false }}">
+      <div style="width:428px;flex:0 0 428px;background:#141D24;border-left:1px solid #223038;display:flex;flex-direction:column;animation:cw-slide .28s ease;overflow:hidden;">
+        <div style="flex:0 0 auto;padding:18px 20px 16px;border-bottom:1px solid #223038;">
+          <div style="display:flex;align-items:flex-start;justify-content:space-between;">
+            <div>
+              <div style="display:flex;align-items:center;gap:10px;">
+                <span style="font-family:'IBM Plex Mono',monospace;font-size:20px;font-weight:600;">{{ sel.name }}</span>
+                <span style="{{ sel.pillStyle }}">{{ sel.statusLabel }}</span>
+              </div>
+              <div style="font-size:12px;color:#8aa0ab;margin-top:3px;">{{ sel.type }} · Bay {{ sel.bay }}</div>
+            </div>
+            <button onClick="{{ closeDrawer }}" style="width:30px;height:30px;background:#1c2a32;border:1px solid #2b3d47;border-radius:8px;cursor:pointer;color:#9fb4bf;display:flex;align-items:center;justify-content:center;" style-hover="background:#243640;color:#eaf1f4;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+          </div>
+          <div style="{{ sel.plainStyle }}">{{ sel.plain }}</div>
+        </div>
+
+        <div style="flex:1;overflow-y:auto;padding:18px 20px 24px;">
+
+          <div style="font-size:10.5px;letter-spacing:1px;color:#7f96a1;font-weight:600;margin-bottom:10px;">CURRENT READINGS</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:22px;">
+            <sc-for list="{{ sel.tiles }}" as="t" hint-placeholder-count="4">
+              <div style="background:#0f1519;border:1px solid #24333c;border-radius:10px;padding:12px 13px;position:relative;overflow:hidden;">
+                <div style="position:absolute;top:0;left:0;bottom:0;width:3px;background:{{ t.color }};"></div>
+                <div style="font-size:11px;color:#8aa0ab;">{{ t.label }}</div>
+                <div style="display:flex;align-items:baseline;gap:5px;margin-top:7px;">
+                  <span style="font-family:'IBM Plex Mono',monospace;font-size:23px;font-weight:600;color:#eaf1f4;">{{ t.value }}</span>
+                  <span style="font-size:11px;color:#8aa0ab;">{{ t.unit }}</span>
+                </div>
+                <div style="font-size:10px;color:{{ t.color }};margin-top:4px;font-weight:500;">{{ t.state }}</div>
+              </div>
+            </sc-for>
+          </div>
+
+          <div style="display:flex;gap:14px;margin-bottom:22px;align-items:stretch;">
+            <div style="flex:0 0 auto;width:118px;background:#0f1519;border:1px solid #24333c;border-radius:10px;padding:12px;display:flex;flex-direction:column;align-items:center;justify-content:center;">
+              <svg width="88" height="88" viewBox="0 0 88 88">
+                <circle cx="44" cy="44" r="34" fill="none" stroke="#22323b" stroke-width="9"></circle>
+                <circle cx="44" cy="44" r="34" fill="none" stroke="{{ sel.healthColor }}" stroke-width="9" stroke-linecap="round" stroke-dasharray="{{ sel.healthDash }}" transform="rotate(-90 44 44)"></circle>
+                <text x="44" y="41" text-anchor="middle" fill="#eaf1f4" font-family="IBM Plex Mono, monospace" font-size="20" font-weight="600">{{ sel.healthPct }}</text>
+                <text x="44" y="56" text-anchor="middle" fill="#7f96a1" font-family="IBM Plex Sans, sans-serif" font-size="9">HEALTH</text>
+              </svg>
+            </div>
+            <div style="flex:1;background:#0f1519;border:1px solid #24333c;border-radius:10px;padding:14px 15px;display:flex;flex-direction:column;justify-content:center;">
+              <div style="font-size:11px;color:#8aa0ab;">Estimated remaining useful life</div>
+              <div style="font-family:'IBM Plex Mono',monospace;font-size:26px;font-weight:600;margin-top:6px;color:#eaf1f4;">{{ sel.rulCycles }}</div>
+              <div style="font-size:12px;color:#8aa0ab;margin-top:1px;">cycles left</div>
+              <div style="font-size:12px;color:{{ sel.rulColor }};margin-top:8px;font-weight:500;">≈ {{ sel.rulTime }} at current rate</div>
+            </div>
+          </div>
+
+          <div style="font-size:10.5px;letter-spacing:1px;color:#7f96a1;font-weight:600;margin-bottom:11px;">LIKELY FAILURE MODES</div>
+          <div style="display:flex;flex-direction:column;gap:11px;margin-bottom:24px;">
+            <sc-for list="{{ sel.failureModes }}" as="fm" hint-placeholder-count="4">
+              <div>
+                <div style="display:flex;justify-content:space-between;font-size:12.5px;margin-bottom:5px;">
+                  <span style="color:#c4d3da;">{{ fm.name }}</span>
+                  <span style="font-family:'IBM Plex Mono',monospace;color:{{ fm.color }};font-weight:600;">{{ fm.pct }}</span>
+                </div>
+                <div style="height:7px;background:#1a2831;border-radius:4px;overflow:hidden;">
+                  <div style="height:100%;width:{{ fm.width }};background:{{ fm.color }};border-radius:4px;"></div>
+                </div>
+              </div>
+            </sc-for>
+          </div>
+
+          <div style="{{ sel.recCardStyle }}">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:9px;">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="{{ sel.recColor }}" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 8v4M12 16h.01"/></svg>
+              <span style="font-size:10.5px;letter-spacing:1px;font-weight:700;color:{{ sel.recColor }};">{{ sel.recHeader }}</span>
+            </div>
+            <div style="font-size:15px;font-weight:600;color:#eaf1f4;line-height:1.35;">{{ sel.recTitle }}</div>
+            <div style="font-size:12.5px;color:#aebcc4;line-height:1.5;margin-top:8px;">{{ sel.recDetail }}</div>
+
+            <sc-if value="{{ sel.decided }}" hint-placeholder-val="{{ false }}">
+              <div style="{{ sel.decisionStyle }}">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M20 6 9 17l-5-5"/></svg>
+                <span>{{ sel.decisionText }}</span>
+              </div>
+            </sc-if>
+            <sc-if value="{{ sel.undecided }}" hint-placeholder-val="{{ true }}">
+              <div style="display:flex;gap:10px;margin-top:15px;">
+                <button onClick="{{ sel.acceptFn }}" style="flex:1;background:{{ sel.recColor }};border:none;border-radius:10px;padding:13px;font-family:'IBM Plex Sans',sans-serif;font-size:13.5px;font-weight:600;color:#0f1519;cursor:pointer;">{{ sel.acceptLabel }}</button>
+                <button onClick="{{ sel.overrideFn }}" style="flex:1;background:transparent;border:1.5px solid #3a4b55;border-radius:10px;padding:13px;font-family:'IBM Plex Sans',sans-serif;font-size:13.5px;font-weight:600;color:#c4d3da;cursor:pointer;" style-hover="border-color:#B23A48;color:#eaf1f4;">{{ sel.overrideLabel }}</button>
+              </div>
+            </sc-if>
+          </div>
+
+          <button onClick="{{ askAgentFn }}" style="width:100%;margin-top:14px;background:#182530;border:1px solid #2b3d47;border-radius:10px;padding:12px;display:flex;align-items:center;justify-content:center;gap:9px;color:#b6c8d1;font-family:'IBM Plex Sans',sans-serif;font-size:13px;font-weight:500;cursor:pointer;" style-hover="background:#2C1A20;color:#eaf1f4;">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 15a2 2 0 0 1-2 2H8l-5 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+            Ask the agent about {{ sel.name }}
+          </button>
+        </div>
+      </div>
+    </sc-if>
+
+  </div>
+
+  <sc-if value="{{ confirmOpen }}" hint-placeholder-val="{{ false }}">
+    <div style="position:fixed;inset:0;background:rgba(6,10,13,.66);display:flex;align-items:center;justify-content:center;z-index:50;animation:cw-fade .18s ease;" onClick="{{ cancelConfirm }}">
+      <div style="width:400px;background:#182027;border:1px solid #2b3d47;border-radius:16px;padding:24px;animation:cw-up .22s ease;" onClick="{{ stop }}">
+        <div style="{{ confirmIconStyle }}">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="{{ confirmColor }}" stroke-width="2"><path d="M12 9v4M12 17h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>
+        </div>
+        <div style="font-size:18px;font-weight:700;margin-top:16px;">{{ confirmTitle }}</div>
+        <div style="font-size:13.5px;color:#aebcc4;line-height:1.55;margin-top:9px;">{{ confirmBody }}</div>
+        <div style="display:flex;gap:11px;margin-top:22px;">
+          <button onClick="{{ cancelConfirm }}" style="flex:1;background:transparent;border:1.5px solid #3a4b55;border-radius:10px;padding:13px;font-family:'IBM Plex Sans',sans-serif;font-size:13.5px;font-weight:600;color:#c4d3da;cursor:pointer;" style-hover="border-color:#B23A48;color:#eaf1f4;">Cancel</button>
+          <button onClick="{{ doConfirm }}" style="flex:1;background:{{ confirmColor }};border:none;border-radius:10px;padding:13px;font-family:'IBM Plex Sans',sans-serif;font-size:13.5px;font-weight:600;color:#0f1519;cursor:pointer;">{{ confirmCta }}</button>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ toastVisible }}" hint-placeholder-val="{{ false }}">
+    <div style="position:fixed;bottom:26px;left:50%;transform:translateX(-50%);background:#1c2c25;border:1px solid #2f6b4f;color:#8ee6b8;font-size:13px;font-weight:500;padding:12px 20px;border-radius:24px;display:flex;align-items:center;gap:9px;z-index:60;animation:cw-up .25s ease;box-shadow:0 8px 24px rgba(0,0,0,.4);">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#35C08A" stroke-width="2.4"><path d="M20 6 9 17l-5-5"/></svg>
+      {{ toastText }}
+    </div>
+  </sc-if>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  constructor(props){
+    super(props);
+    this.mountRef = React.createRef();
+    this.chatRef = React.createRef();
+    this.FOCAL = 'CP-07';
+    this.LIVE_ID = 'RC-07';   // real backend machine feeding the focal press
+    this.baseMachines = this.makeMachines();
+    this.state = {
+      activeView: 'floor',
+      liveOk: null, live: null, liveMachines: [], liveEpoch: 0, history: [],
+      role: 'operator', flow: null, chatByRole: {},
+      faultMode: 'none',
+      selectedId: null,
+      drawerOpen: false,
+      decisions: {},
+      confirmOpen: false,
+      confirmAction: null,
+      confirmId: null,
+      toastText: '',
+      toastVisible: false,
+      clock: this.fmtClock(),
+      chatInput: '',
+      isTyping: false,
+      messages: [
+        { role:'agent', text:"I'm watching all 12 presses. Everything is inside the cure window right now. Ask me anything — or run a fault from the Floor view to see how I respond." }
+      ]
+    };
   }
-  const tr = t.triage || {};
-  const risk = tr.risk || "CLEAR";
-  row.append(el("span", "arrow", "Tier1"));
-  if ((tr.tier_reached || 1) >= 2) {
-    row.append(el("span", "arrow", "→ Tier2"));
-    row.append(el("span", "risk " + risk, risk));
-  } else {
-    row.append(el("span", "risk " + risk, "· " + risk));
-  }
-  if ((tr.tier_reached || 1) >= 3 || t.advisory) {
-    row.append(el("span", "drafting", "→ Tier3 drafting advisory…"));
-  }
-  if (tr.reason) { const r = el("span", "", "· " + tr.reason); r.style.fontSize = "11px"; row.append(r); }
-  return row;
-}
 
-/* ---------------- advisory cards ---------------- */
-const cards = {}; // id → card node
-function renderAdvisory(a) {
-  let card = cards[a.id];
-  if (!card) { card = el("div"); cards[a.id] = card; feed.append(card); }
-  card.className = "card " + a.severity;
-  card.innerHTML = "";
-
-  const top = el("div", "top");
-  top.append(el("span", "sev " + a.severity, a.severity));
-  top.append(el("span", "title", a.title));
-  top.append(el("span", "mach", `${a.machine_id} · ${a.department} · E${a.epoch} · #${a.id}`));
-  card.append(top);
-
-  card.append(el("div", "msg", a.message));
-  if (a.justification) card.append(el("div", "just", "Evidence: " + a.justification));
-
-  const imp = el("div", "impact");
-  if (a.recommended_action) { const d = el("div"); d.append(el("b", "", "action ")); d.append(document.createTextNode(a.recommended_action)); imp.append(d); }
-  if (a.eur_impact) { const d = el("div"); d.append(el("b", "", "€ ")); d.append(document.createTextNode(a.eur_impact)); imp.append(d); }
-  if (a.ttf_estimate) { const d = el("div"); d.append(el("b", "", "TTF ")); d.append(document.createTextNode(a.ttf_estimate)); imp.append(d); }
-  if (a.safety_impact) { const d = el("div"); d.append(el("b", "", "safety ")); d.append(document.createTextNode(a.safety_impact)); imp.append(d); }
-  if (imp.children.length) card.append(imp);
-
-  if (a.debate && a.debate.turns && a.debate.turns.length) {
-    const det = el("details");
-    const sum = el("summary", "", `debate transcript — ${a.debate.turns.length} turns, verdict: ${a.debate.verdict}`);
-    det.append(sum);
-    for (const turn of a.debate.turns) {
-      const tdiv = el("div", "turn " + turn.role);
-      tdiv.append(el("span", "who", turn.role.toUpperCase() + " · R" + turn.round));
-      tdiv.append(el("div", "", turn.content));
-      det.append(tdiv);
-    }
-    det.append(el("div", "verdict", "final: " + (a.debate.final_proposal || "").slice(0, 300)));
-    card.append(det);
-  }
-
-  if (a.jury) {
-    const j = a.jury, jd = el("div", "jury");
-    jd.append(el("span", "stamp " + (j.passed ? "pass" : "flag"), j.passed ? "JURY PASSED" : "JURY FLAGGED"));
-    const scores = [["grounding", j.grounding], ["safety", j.safety], ["actionable", j.actionability], ["human-in-charge", j.human_in_charge], ["overall", j.overall]];
-    for (const [k, v] of scores) { const s = el("span", "sc"); s.append(document.createTextNode(k + " ")); s.append(el("b", "", (v ?? "-") + "/5")); jd.append(s); }
-    if (j.critique) { const c = el("div", "sc", j.critique); c.style.width = "100%"; jd.append(c); }
-    card.append(jd);
-  }
-
-  const act = el("div", "actions");
-  if (a.status === "pending") {
-    const bA = el("button", "accept", "✓ Accept");
-    bA.onclick = () => decide(a.id, "accept");
-    const bO = el("button", "overr", "✗ Override");
-    bO.onclick = () => decide(a.id, "override");
-    act.append(bA, bO, el("span", "status-rib", "awaiting operator"));
-  } else {
-    act.append(el("span", "status-rib " + a.status, a.status.toUpperCase() + " by operator"));
-    if (a.override_reason) act.append(el("span", "ovr-reason", "reason: " + a.override_reason));
-  }
-  card.append(act);
-  return card;
-}
-
-async function decide(id, kind) {
-  let reason = "";
-  if (kind === "override") {
-    reason = prompt("Override reason (fed back into the agent's future prompts):") || "";
-    if (!reason.trim()) return;
-  }
-  const res = await fetch(`/api/advisory/${id}/${kind}`, {
-    method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ reason }),
-  });
-  if (res.ok) renderAdvisory(await res.json());
-}
-
-/* ---------------- boss strip ---------------- */
-function renderBoss(b) {
-  $("bossText").textContent = b.text || "";
-  $("bossText").style.color = "var(--ink)";
-  const chips = $("deptChips");
-  chips.innerHTML = "";
-  for (const [dept, risk] of Object.entries(b.department_status || {})) {
-    const c = el("span", "dept");
-    c.append(document.createTextNode(dept + " "));
-    c.append(el("b", "risk " + risk, risk));
-    chips.append(c);
-  }
-  if (b.open_advisories !== undefined) {
-    chips.append(el("span", "dept", "open advisories: " + b.open_advisories));
-  }
-}
-
-/* ---------------- SSE main stream ---------------- */
-function connectStream() {
-  const es = new EventSource("/api/stream");
-  es.addEventListener("hello", (e) => {
-    const d = JSON.parse(e.data);
-    setEpoch(d.epoch);
-    refreshHealth();
-  });
-  es.addEventListener("tick", (e) => {
-    const t = JSON.parse(e.data);
-    setEpoch(t.epoch);
-    feed.append(tickLine(t));
-    trimFeed(); scrollFeed();
-  });
-  es.addEventListener("advisory", (e) => {
-    renderAdvisory(JSON.parse(e.data));
-    scrollFeed();
-  });
-  es.addEventListener("override", (e) => renderAdvisory(JSON.parse(e.data)));
-  es.addEventListener("boss", (e) => renderBoss(JSON.parse(e.data)));
-  es.onerror = () => { /* EventSource auto-reconnects */ };
-}
-
-/* ---------------- operator chat (POST + SSE parse) — C3-toolchat-v1 ---------------- */
-function fmtParams(p) {
-  return Object.entries(p || {}).map(([k, v]) => k + "=" + v).join(", ");
-}
-
-function renderAgentBubble(node, text, citations, toolDiv) {
-  node.innerHTML = "";
-  if (toolDiv && toolDiv.children.length) node.append(toolDiv);
-  // split off the programmatic Data Provenance block → collapsible audit trail
-  let body = text, prov = "";
-  const pIdx = text.indexOf("Data Provenance:");
-  if (pIdx >= 0) {
-    body = text.slice(0, pIdx).replace(/\s+$/, "");
-    prov = text.slice(pIdx + "Data Provenance:".length).trim();
-  }
-  const gapsIdx = body.indexOf("Gaps:");
-  if (gapsIdx > 0) {
-    node.append(document.createTextNode(body.slice(0, gapsIdx)));
-    node.append(el("span", "gaps", body.slice(gapsIdx)));
-  } else {
-    node.append(document.createTextNode(body));
-  }
-  if (prov) {
-    const det = el("details", "prov");
-    const n = (prov.match(/^- /gm) || []).length;
-    det.append(el("summary", "", `DATA PROVENANCE — audit trail (${n} tool call${n === 1 ? "" : "s"})`));
-    const pre = el("pre", "", prov);
-    det.append(pre);
-    node.append(det);
-  }
-  if (citations && citations.length) {
-    const cd = el("div", "cites");
-    for (const c of citations) cd.append(el("span", "chip", c));
-    node.append(cd);
-  }
-}
-
-$("chatForm").addEventListener("submit", async (ev) => {
-  ev.preventDefault();
-  const q = $("chatInput").value.trim();
-  if (!q) return;
-  $("chatInput").value = "";
-  chatLog.append(el("div", "bubble op", q));
-  const agentB = el("div", "bubble ag");
-  const toolDiv = el("span", "toolact");   // agent working: ⚙ tool(...) → ok
-  const textSpan = el("span");
-  const cur = el("span", "cursor");
-  agentB.append(toolDiv, textSpan, cur);
-  chatLog.append(agentB);
-  chatLog.scrollTop = chatLog.scrollHeight;
-  const pendingTools = [];
-
-  let acc = "";
-  try {
-    const res = await fetch("/api/chat", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ question: q, stream: true }),
+  makeMachines(allHealthy){
+    // two production lines of 6 presses; focal CP-07 sits front-centre
+    const xs = [-19.2,-11.5,-3.8,3.8,11.5,19.2];
+    const layout = [
+      {id:'CP-01',x:xs[0],z:3},{id:'CP-02',x:xs[1],z:3},{id:'CP-07',x:xs[2],z:3},{id:'CP-03',x:xs[3],z:3},{id:'CP-04',x:xs[4],z:3},{id:'CP-05',x:xs[5],z:3},
+      {id:'CP-06',x:xs[0],z:-10},{id:'CP-08',x:xs[1],z:-10},{id:'CP-09',x:xs[2],z:-10},{id:'CP-10',x:xs[3],z:-10},{id:'CP-11',x:xs[4],z:-10},{id:'CP-12',x:xs[5],z:-10}
+    ];
+    return layout.map((L,i)=>{
+      const idx = parseInt(L.id.slice(3),10);
+      let health = 0.84 + ((idx*7)%11)/100;               // 0.84..0.94 healthy spread
+      if(!allHealthy){ if(L.id==='CP-03') health = 0.66; if(L.id==='CP-10') health = 0.71; }
+      if(L.id==='CP-07') health = 0.88;
+      // realistic healthy readings inside the verified curing envelope (live
+      // machines override these; ambiance stays plausibly green)
+      const temp = 194.0 + (idx%5)*0.7;
+      const pressure = 17.2 + (idx%4)*0.18;
+      let vib = 1.05 + (idx%6)*0.12;
+      if(!allHealthy){ if(L.id==='CP-03') vib = 3.2; if(L.id==='CP-10') vib = 3.0; }
+      const power = 66.0 + (idx%7)*1.2;
+      // RUL derived from health so the health ring and the cycles NEVER disagree
+      const rul = Math.round(40 + health*260);            // ~62..285 cycles
+      return { id:L.id, x:L.x, z:L.z, bay:idx, type:'Curing Press \u00b7 63" bladder', health,
+        readings:{ mould_temp_C:temp, pressure_bar:pressure, vibration_rms_mm_s:vib, coil_power_kW:power }, rul };
     });
-    const reader = res.body.getReader();
-    const dec = new TextDecoder();
-    let buf = "";
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buf += dec.decode(value, { stream: true });
-      let i;
-      while ((i = buf.indexOf("\n\n")) >= 0) {
-        const raw = buf.slice(0, i); buf = buf.slice(i + 2);
-        let evName = "", data = "";
-        for (const line of raw.split("\n")) {
-          if (line.startsWith("event: ")) evName = line.slice(7).trim();
-          else if (line.startsWith("data: ")) data += line.slice(6);
+  }
+
+  fmtClock(){
+    const d = new Date();
+    const p = n => String(n).padStart(2,'0');
+    return p(d.getHours())+':'+p(d.getMinutes())+':'+p(d.getSeconds());
+  }
+
+  componentDidMount(){
+    this._clock = setInterval(()=> this.setState({clock:this.fmtClock()}), 1000);
+    this.startLive();
+    this.syncThree();
+  }
+  componentDidUpdate(){
+    this.syncThree();
+    if(this.chatRef.current){ this.chatRef.current.scrollTop = this.chatRef.current.scrollHeight; }
+  }
+  componentWillUnmount(){
+    clearInterval(this._clock);
+    this.stopLive();
+    if(this._ramp) clearInterval(this._ramp);
+    this.disposeThree();
+  }
+
+  // ==== LIVE BRIDGE (integration 2026-07-05) ==================================
+  // CP-07 (the design's focal press) is fed by the backend's REAL curing press
+  // RC-07 via /api/factory/state; the other 11 presses are design ambiance —
+  // the backend streams ONE real machine. Graceful degrade: without a server
+  // the design's simulated data takes over, never a broken screen.
+  startLive(){ this.pollLive(); this._livePoll = setInterval(()=>this.pollLive(), 1500); }
+  stopLive(){ if(this._livePoll) clearInterval(this._livePoll); }
+  pollLive(){
+    fetch('/api/factory/state', {cache:'no-store'})
+      .then(r=>{ if(!r.ok) throw new Error('http '+r.status); return r.json(); })
+      .then(s=>{
+        const ms = s.machines||[];
+        const m = ms.find(x=>x.machine_id===this.LIVE_ID) || null;
+        this.setState({live:m, liveMachines:ms, liveEpoch:(s.epoch||0), liveOk:!!m});
+      })
+      .catch(()=>{ if(this.state.liveOk!==false) this.setState({liveOk:false, live:null, liveMachines:[]}); });
+    // decision audit trail for the manager (what was proposed vs decided)
+    fetch('/api/history?limit=40', {cache:'no-store'})
+      .then(r=>r.ok?r.json():null)
+      .then(j=>{ if(j && j.entries) this.setState({history:j.entries}); })
+      .catch(()=>{});
+    // inter-station message flow (manager view) — real flight-recorder events
+    fetch('/api/flow?limit=120', {cache:'no-store'})
+      .then(r=>r.ok?r.json():null)
+      .then(j=>{ if(j && j.messages) this.setState({flow:j}); })
+      .catch(()=>{});
+  }
+  liveOverlay(out, f){
+    // CP-07 <- RC-07 (TRAINED MH-PINN state); CP-01/03/10 <- their own
+    // distinct real FD001 replays. Everything else stays design ambiance.
+    const ms = this.state.liveMachines || [];
+    if(!this.state.liveOk || !ms.length) return out;
+    const byId = {}; ms.forEach(x=>{ byId[x.machine_id]=x; });
+    const REPLAY_UNITS = {'CP-01':24, 'CP-03':76, 'CP-10':2};
+    const apply = (card, src, label)=>{
+      const c = JSON.parse(JSON.stringify(card));
+      const lr = src.last_reading||{}, sig = lr.signals||{}, pinn = lr.pinn||{};
+      ['mould_temp_C','pressure_bar','vibration_rms_mm_s','coil_power_kW'].forEach(k=>{
+        if(typeof sig[k]==='number') c.readings[k]=sig[k];
+      });
+      if(typeof pinn.health_index==='number') c.health = Math.max(0, Math.min(1, pinn.health_index));
+      if(pinn.rul_cycles!=null) c.rul = Math.round(pinn.rul_cycles);
+      c.liveAdvisory = src.active_advisory || null;
+      c.spec = src.signals_spec || null;     // real verified limits per signal
+      c.type = card.type + ' · ' + label;   // cards/drawer show {{ type }}
+      c.isLive = true;
+      return c;
+    };
+    return out.map(m=>{
+      // CP-07 shows the live PINN state whether healthy (heartbeat) or in a
+      // fault ramp — the backend owns the arc now, so we always overlay it.
+      if(m.id===this.FOCAL && byId[this.LIVE_ID])
+        return apply(m, byId[this.LIVE_ID], 'LIVE · MH-PINN v2');
+      if(REPLAY_UNITS[m.id] && byId[m.id])
+        return apply(m, byId[m.id], 'REPLAY · FD001 #'+REPLAY_UNITS[m.id]);
+      return m;
+    });
+  }
+  pushAgent(text){
+    this.setState({messages: this.state.messages.concat([{role:'agent', text:String(text||'')}]), isTyping:false});
+  }
+  // Verified curing-press limits (fallback when a card has no live spec).
+  // Mirrors backend/agent/limits.py — real ranges, not the mockup's guesses.
+  curingSpec(){ return {
+    mould_temp_C:{operating:[180,210], unit:'°C'},
+    pressure_bar:{operating:[16,20], unit:'bar'},
+    vibration_rms_mm_s:{operating:[0,2.8], trip:7.1, zones:{A:1.12,B:2.8,C:7.1}, unit:'mm/s'},
+    coil_power_kW:{operating:[60,92], trip:95, unit:'kW'}
+  };}
+  // How far a reading is past its verified limit — 'how red the red is'.
+  evalLimit(key, val, spec){
+    const s = spec && spec[key];
+    if(!s || typeof val!=='number') return {color:'#8aa0ab', state:'—'};
+    const op = s.operating; if(!op || op.length<2) return {color:'#35C08A', state:'reading'};
+    const trip = (s.trip!=null)? s.trip : op[1];
+    if(val > op[1]){
+      const over = op[1]>0? Math.round((val-op[1])/op[1]*100):0;
+      if(s.zones){
+        const z = val>=s.zones.C?'D — danger': val>=s.zones.B?'C — high':'B';
+        return {color: val>=trip?'#F0524B':'#F0B23E', state:'Zone '+z+' · +'+over+'% over safe'};
+      }
+      return {color: val>=trip?'#F0524B':'#F0B23E',
+              state:(val>=trip?'OVER LIMIT ':'Above max ')+'+'+over+'%'};
+    }
+    if(val < op[0]){
+      const under = op[0]>0? Math.round((op[0]-val)/op[0]*100):0;
+      return {color:'#F0B23E', state:'Below min \u2212'+under+'%'};
+    }
+    return {color:'#35C08A', state:'In range'};
+  }
+  healAll(){ this.baseMachines = this.makeMachines(true); }
+  // Machine UI status = the WORST of long-term health (PINN), instantaneous
+  // limit conformity, and any pending advisory. The trained model can rate
+  // long-term health green while a signal is already out of its verified
+  // band (vibration in zone C at mid-life, say) — the badge must not say
+  // "Healthy" next to an orange tile. Honest composite, no data touched.
+  uiStatus(m){
+    // NB: written `(m || {}).health` so the global statusMeta->uiStatus
+    // rewrite below cannot match THIS internal call (self-recursion guard).
+    const meta = this.statusMeta((m || {}).health);
+    let lvl = meta.status==='green' ? 0 : meta.status==='yellow' ? 1 : 2;
+    const spec = m.spec || this.curingSpec();
+    const r = m.readings || {};
+    ['mould_temp_C','pressure_bar','vibration_rms_mm_s','coil_power_kW'].forEach(k=>{
+      const e = this.evalLimit(k, r[k], spec);
+      if(e.color==='#F0524B') lvl = 2;
+      else if(e.color==='#F0B23E') lvl = Math.max(lvl, 1);
+    });
+    const a = m.liveAdvisory;
+    if(a){ if(a.severity==='CRITICAL') lvl = 2;
+           else if(a.severity==='HIGH') lvl = Math.max(lvl, 1); }
+    return lvl===2 ? {status:'red', color:'#F0524B', label:'Alert'}
+         : lvl===1 ? {status:'yellow', color:'#F0B23E', label:'Watch'}
+         : {status:'green', color:'#35C08A', label:'Healthy'};
+  }
+  deriveHistory(h){
+    const accepted = h.decision==='accepted';
+    const sev = (h.severity||'').toUpperCase();
+    const sevColor = (sev==='CRITICAL'||sev==='HIGH')?'#F0524B':sev==='WATCH'?'#F0B23E':'#35C08A';
+    const decColor = accepted?'#35C08A':'#F0B23E';
+    return {
+      machine:h.machine_id, ago:h.ago, sev:sev,
+      proposed:h.proposed_title, action:h.proposed_action||'\u2014',
+      reason:h.reason||'', hasReason:!!(h.reason),
+      decLabel: accepted?'ACCEPTED':'OVERRIDDEN',
+      decPill:{fontSize:'10px',fontWeight:700,letterSpacing:'.5px',padding:'3px 9px',borderRadius:'20px',color:decColor,background:decColor+'1e',border:'1px solid '+decColor+'44'},
+      sevPill:{fontSize:'9.5px',fontWeight:700,padding:'2px 7px',borderRadius:'20px',color:sevColor,background:sevColor+'18'},
+      rowStyle:{background:'#141D24',border:'1px solid #223038',borderRadius:'12px',padding:'15px 17px',marginBottom:'12px'}
+    };
+  }
+  // ==== INFORMATION FLOW (manager view) ======================================
+  // Renders the /api/flow feed — REAL flight-recorder events from the shared
+  // store (each hop was logged by the pipeline stage that performed it).
+  // Nothing here is simulated: at rest you see telemetry+boss only, because
+  // the agent layer genuinely stands by until a fault engages it.
+  deriveFlow(){
+    // Topology map (manager view): BOSS on top, agent stations in the middle,
+    // machines at the bottom. Every edge/node style below is derived from the
+    // REAL flight-recorder messages — an edge animates only when that hop
+    // actually happened in the last few seconds.
+    const fl = this.state.flow || {};
+    const msgs = fl.messages || [];                 // newest first
+    const now = fl.at || (Date.now()/1000);
+    const color = s => s==='blocked' ? '#F0524B' : s==='warn' ? '#F0B23E' : s==='ok' ? '#35C08A' : '#39505c';
+    const MIDX = {'CP-07':0,'CP-01':1,'CP-03':2,'CP-10':3,'CL-03':4,'MX-02':5};
+    const vars = {};
+    const idleEdge = {stroke:'#26343d', strokeWidth:1.3, opacity:.9};
+    ['eM0','eM1','eM2','eM3','eM4','eM5','eGT','eTD','eDD','eDJ','eJA','eAB','eAO','eOA','eAN']
+      .forEach(k=>{ vars[k]=idleEdge; });
+    const NODEK = ['GATE','TRIAGE','DRAFT','DEBATE','JURY','ADVISORY','BOSS','OPERATOR','NOTIFY'];
+    const nstat = {}; NODEK.forEach(n=>{ nstat[n]={s:'idle',at:0}; });
+    for(let i=0;i<6;i++){ vars['mDot'+i]={fill:'#39505c'}; vars['mAgo'+i]='\u2014';
+      vars['mBox'+i]={fill:'#141D24', stroke:'#223038', strokeWidth:1.2}; }
+    const liveEdge = st => ({stroke:color(st), strokeWidth:2.4, strokeDasharray:'7 7',
+      animation:'cw-dash .8s linear infinite', opacity:1});
+    const EK = {triage:['eGT'], debate:['eTD','eDD'], jury:['eDJ'], advisory:['eJA'],
+      boss:['eAB'], intervention:['eAO'], override:['eOA'], notify:['eAN'],
+      hmac_rejected:[], reading_rejected:['eGT'], pipeline_error:['eTD']};
+    const seenM = {};
+    msgs.forEach(m=>{
+      const age = now - (m.at||0);
+      [m.from, m.to].forEach(n=>{
+        if(nstat[n]!==undefined && age<=25 && (m.at||0)>nstat[n].at) nstat[n]={s:m.status,at:m.at};
+      });
+      if(m.kind==='tick'){
+        const i = MIDX[m.machine];
+        if(i!==undefined && !seenM[i]){ seenM[i]=1;
+          vars['mDot'+i]={fill:color(m.status)}; vars['mAgo'+i]=m.ago;
+          vars['mBox'+i]={fill:'#141D24', stroke:(m.status==='ok'?'#2f6b52':color(m.status)), strokeWidth:1.4};
+          if(age<=6) vars['eM'+i]=liveEdge(m.status);
         }
-        if (evName === "tool_call") {
-          const d = JSON.parse(data);
-          const ln = el("span", "tline");
-          ln.append(document.createTextNode("⚙ "));
-          ln.append(el("span", "tname", d.name + "(" + fmtParams(d.params) + ")"));
-          ln.append(el("span", "twait", " → …"));
-          toolDiv.append(ln);
-          pendingTools.push(ln);
-          chatLog.scrollTop = chatLog.scrollHeight;
-        } else if (evName === "tool_result") {
-          const d = JSON.parse(data);
-          const ln = pendingTools.shift();
-          if (ln) {
-            ln.lastChild.remove();
-            ln.append(el("span", d.ok ? "tok" : "terr", d.ok ? " → ok" : " → error"));
-            if (d.summary) ln.append(el("span", "tsum", " · " + d.summary));
-          }
-          chatLog.scrollTop = chatLog.scrollHeight;
-        } else if (evName === "token") {
-          acc += JSON.parse(data).text;
-          // hide the streaming provenance tail — it gets its collapsible at "turn"
-          const cutIdx = acc.indexOf("Data Provenance:");
-          textSpan.textContent = cutIdx >= 0 ? acc.slice(0, cutIdx) : acc;
-          chatLog.scrollTop = chatLog.scrollHeight;
-        } else if (evName === "turn") {
-          const turn = JSON.parse(data);
-          renderAgentBubble(agentB, turn.content, turn.citations, toolDiv);
-        } else if (evName === "error") {
-          agentB.textContent = "agent error: " + data;
-        }
+        return;
+      }
+      if(age<=7) (EK[m.kind]||[]).forEach(k=>{ if(vars[k]===idleEdge) vars[k]=liveEdge(m.status); });
+    });
+    NODEK.forEach(n=>{ const s=nstat[n].s;
+      vars['n'+n]={fill:'#141D24',
+        stroke:(s==='blocked'?'#F0524B': s==='warn'?'#F0B23E': s==='ok'?'#2f6b52':'#223038'),
+        strokeWidth:(s==='idle'?1.2:1.9)}; });
+    // message log — every non-telemetry hop, newest first (trace errors back)
+    const feed = msgs.filter(m=>m.kind!=='tick').slice(0,14).map(m=>({
+      ago:m.ago, machine:m.machine||'\u2014', label:m.label,
+      route:m.from+' \u2192 '+m.to,
+      dotStyle:{width:'8px',height:'8px',borderRadius:'50%',background:color(m.status),flex:'0 0 auto'},
+      rowStyle:{display:'flex',alignItems:'center',gap:'11px',background:'#141D24',
+        border:'1px solid '+(m.status==='blocked'?'#F0524B66':'#223038'),
+        borderRadius:'10px',padding:'10px 13px',marginBottom:'8px'} }));
+    const blocked = msgs.find(m=>m.status==='blocked' && (now-(m.at||0))<90) || null;
+    const active = !!fl.agent_layer_active;
+    return { vars, feed, feedEmpty: !feed.length,
+      modeLabel: active ? 'AGENT LAYER ACTIVE \u2014 messages in flight'
+                        : 'TELEMETRY ONLY \u2014 agent layer on standby (no anomaly)',
+      modeStyle:{display:'inline-block',fontSize:'10.5px',fontWeight:700,letterSpacing:'.8px',
+        padding:'5px 11px',borderRadius:'14px',marginBottom:'16px',
+        color: active?'#F0B23E':'#4fd39e',
+        border:'1px solid '+(active?'#6b5322':'#2b5c46'),
+        background: active?'#251f10':'#12251d'},
+      hasBlocked: !!blocked,
+      blockedLabel: blocked ? ((blocked.machine? blocked.machine+' \u00b7 ':'')+blocked.label) : '' };
+  }
+
+  // ---- scenario ----
+  currentMachines(){
+    const f = this.state.faultMode;
+    const p = this.state.faultProgress || 0;
+    const out = this.baseMachines.map(m=>{
+      if(m.id!==this.FOCAL || f==='none' || p<=0) return m;
+      const c = JSON.parse(JSON.stringify(m));
+      const L = (a,b)=> a + (b-a)*p;
+      if(f==='thermal'){
+        c.readings.mould_temp_C = L(m.readings.mould_temp_C, 171.4);
+        c.readings.coil_power_kW = L(m.readings.coil_power_kW, 63.8);
+        c.readings.vibration_rms_mm_s = L(m.readings.vibration_rms_mm_s, 2.6);
+        c.health = L(m.health, 0.34);
+        c.rul = Math.round(L(m.rul, 640));
+      } else if(f==='bearing'){
+        c.readings.vibration_rms_mm_s = L(m.readings.vibration_rms_mm_s, 6.9);
+        c.readings.mould_temp_C = L(m.readings.mould_temp_C, 152.2);
+        c.health = L(m.health, 0.43);
+        c.rul = Math.round(L(m.rul, 1900));
+      }
+      return c;
+    });
+    return this.liveOverlay(out, f);
+  }
+  focal(){ return this.currentMachines().find(m=>m.id===this.FOCAL); }
+
+  statusMeta(h){
+    if(h>=0.70) return {status:'green', color:'#35C08A', label:'Healthy'};
+    if(h>=0.45) return {status:'yellow', color:'#F0B23E', label:'Watch'};
+    return {status:'red', color:'#F0524B', label:'Alert'};
+  }
+
+  recFor(m){
+    if(m.id===this.FOCAL && m.liveAdvisory){
+      const a = m.liveAdvisory;
+      const sev = a.severity==='CRITICAL' ? 'red' : (a.severity==='HIGH'||a.severity==='WATCH') ? 'yellow' : 'green';
+      const col = sev==='red' ? '#F0524B' : sev==='yellow' ? '#F0B23E' : '#35C08A';
+      const disp = s => String(s||'').split('RC-07').join(m.id);
+      return { severity:sev, color:col, liveId:a.id,
+        title:'LIVE \u00b7 '+disp(a.title),
+        detail:disp(a.message||'')+(a.justification ? ' \u2014 '+disp(a.justification) : ''),
+        acceptLabel:'Accept \u00b7 '+disp(a.recommended_action||'Apply recommendation'),
+        overrideLabel:'Override \u00b7 Keep running' };
+    }
+    const f = this.state.faultMode;
+    if(m.id===this.FOCAL && f==='thermal' && m.health<0.55){
+      return { severity:'red', color:'#F0524B',
+        title:'Hold press — inspect Zone-3 heater element',
+        detail:'Mould temperature is 18 °C above the cure setpoint and rising ~2 °C per cycle. The physics twin reconstructs the same drift from coil power, so this reads as a failing Zone-3 heater — not a bad thermocouple. Curing above window risks scrap product and further heater damage.',
+        acceptLabel:'Accept · Schedule hold', overrideLabel:'Override · Keep running' };
+    }
+    if(m.id===this.FOCAL && f==='bearing' && m.health<0.55){
+      return { severity:'red', color:'#F0524B',
+        title:'Schedule bearing service within 3 shifts',
+        detail:'Vibration RMS has crossed 6.5 mm/s (ISO 10816 zone C). Spectral energy is concentrating at the bearing outer-race frequency. The twin estimates ~1,900 cycles before zone D, where damage accelerates.',
+        acceptLabel:'Accept · Schedule service', overrideLabel:'Override · Monitor only' };
+    }
+    const meta = this.uiStatus(m);
+    if(meta.status==='yellow'){
+      return { severity:'yellow', color:'#F0B23E',
+        title:'Monitor — early vibration trend',
+        detail:'Vibration is slightly elevated but comfortably within safe limits. No action needed yet; the twin will raise an alert if the trend accelerates.',
+        acceptLabel:'Acknowledge', overrideLabel:'Flag a concern' };
+    }
+    return { severity:'green', color:'#35C08A',
+      title:'No action needed',
+      detail:'All signals are inside the cure window. The twin reconstructs mould temperature within 0.4 °C of the sensor — no divergence to worry about.',
+      acceptLabel:'Acknowledge', overrideLabel:'Flag a concern' };
+  }
+
+  failureModesFor(m){
+    const f = this.state.faultMode;
+    const mk = (name,p)=>({name, p});
+    if(m.id===this.FOCAL && f==='thermal' && m.health<0.6) return [mk('Zone-3 heater element drift',0.63),mk('Thermocouple fault',0.19),mk('Bladder wear',0.09),mk('Bearing wear',0.05)];
+    if(m.id===this.FOCAL && f==='bearing' && m.health<0.6) return [mk('Bearing outer-race wear',0.58),mk('Lubrication loss',0.21),mk('Shaft misalignment',0.11),mk('Seal wear',0.06)];
+    if(this.uiStatus(m).status==='yellow') return [mk('Bearing wear',0.17),mk('Bladder wear',0.09),mk('Heater drift',0.05),mk('Seal wear',0.04)];
+    return [mk('Bladder wear',0.06),mk('Bearing wear',0.05),mk('Heater drift',0.03),mk('Seal wear',0.02)];
+  }
+
+  // ---- three.js ----
+  waitThree(cb){
+    const ok = ()=> window.THREE && THREE.OrbitControls && THREE.EffectComposer && THREE.UnrealBloomPass && THREE.RenderPass && THREE.ShaderPass;
+    if(ok()){ cb(); return; }
+    const t = setInterval(()=>{ if(ok()){ clearInterval(t); cb(); } }, 70);
+  }
+  syncThree(){
+    const onFloor = this.state.activeView==='floor';
+    if(onFloor && this.mountRef.current && !this.renderer && !this._pending){
+      this._pending = true;
+      this.waitThree(()=>{ this._pending=false; if(this.state.activeView==='floor' && this.mountRef.current && !this.renderer) this.initThree(); });
+    } else if(!onFloor && this.renderer){
+      this.disposeThree();
+    } else if(onFloor && this.renderer){
+      this.updateScene();
+    }
+  }
+  initThree(){
+    const THREE = window.THREE;
+    const mount = this.mountRef.current;
+    const w = mount.clientWidth, h = mount.clientHeight;
+    const scene = new THREE.Scene();
+    scene.fog = new THREE.Fog(0x2a333a, 26, 94);
+    const camera = new THREE.PerspectiveCamera(40, w/h, 0.1, 400);
+    camera.position.set(27, 16, 33);
+    const renderer = new THREE.WebGLRenderer({antialias:true});
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio,2));
+    renderer.setSize(w,h);
+    renderer.outputEncoding = THREE.sRGBEncoding;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 0.92;
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    mount.appendChild(renderer.domElement);
+
+    const pmrem = new THREE.PMREMGenerator(renderer);
+    const envEq = this.makeEnvTexture();
+    scene.environment = pmrem.fromEquirectangular(envEq).texture;
+    scene.background = envEq;
+
+    const M = this.mats();
+
+    // concrete floor
+    const floor = new THREE.Mesh(new THREE.PlaneGeometry(150,150), new THREE.MeshStandardMaterial({ map:this.makeConcreteTexture(false), bumpMap:this.makeConcreteTexture(true), bumpScale:0.05, roughness:0.95, metalness:0.0, envMapIntensity:0.2 }));
+    floor.rotation.x = -Math.PI/2; floor.receiveShadow = true; scene.add(floor);
+    // painted safety lanes down the aisles
+    const laneMat = new THREE.MeshStandardMaterial({color:0xc7a028, roughness:0.6});
+    [6.4,-2.5,-13.4].forEach(z=>{ const l=new THREE.Mesh(new THREE.BoxGeometry(62,0.02,0.18), laneMat); l.position.set(0,0.02,z); l.receiveShadow=true; scene.add(l); });
+
+    // back wall + clerestory windows
+    const wall = new THREE.Mesh(new THREE.PlaneGeometry(150,28), new THREE.MeshStandardMaterial({color:0x2a3138, roughness:0.9, metalness:0.05}));
+    wall.position.set(0,14,-27); scene.add(wall);
+    const winMat = new THREE.MeshStandardMaterial({color:0x8ba2b3, emissive:0x7d97ad, emissiveIntensity:0.42, roughness:0.35});
+    for(let i=-10;i<=10;i++){ const win=new THREE.Mesh(new THREE.BoxGeometry(4,3,0.3), winMat); win.position.set(i*6.6,20,-26.9); scene.add(win); }
+
+    // overhead high-bay fixtures
+    const fixtureMat = new THREE.MeshStandardMaterial({color:0x2a3036, metalness:0.6, roughness:0.5});
+    const lampMat = new THREE.MeshStandardMaterial({color:0xfff3da, emissive:0xfff0d2, emissiveIntensity:2.0, roughness:0.2});
+    for(let gx=-2;gx<=2;gx++){ for(let gz=-1;gz<=1;gz++){ const f=new THREE.Group(); f.position.set(gx*12,10,gz*10-3.5);
+      const hs=new THREE.Mesh(new THREE.CylinderGeometry(0.55,0.8,0.5,16), fixtureMat); f.add(hs);
+      const lp=new THREE.Mesh(new THREE.CircleGeometry(0.56,16), lampMat); lp.rotation.x=Math.PI/2; lp.position.y=-0.26; f.add(lp); scene.add(f); } }
+
+    // lighting: one shadow-casting key over the hall + hemisphere + fills
+    scene.add(new THREE.HemisphereLight(0x9fb3c2, 0x161d22, 0.66));
+    const key = new THREE.DirectionalLight(0xfff0da, 1.5);
+    key.position.set(24, 32, 22); key.target.position.set(0,2,-3);
+    key.castShadow = true; key.shadow.mapSize.set(2048,2048);
+    key.shadow.camera.near = 4; key.shadow.camera.far = 120;
+    key.shadow.camera.left = -36; key.shadow.camera.right = 36; key.shadow.camera.top = 32; key.shadow.camera.bottom = -32;
+    key.shadow.bias = -0.0004; key.shadow.normalBias = 0.025;
+    scene.add(key); scene.add(key.target);
+    const fill = new THREE.DirectionalLight(0x8fa8c2, 0.4); fill.position.set(-20,13,18); scene.add(fill);
+    const back = new THREE.PointLight(0xffdca8, 0.6, 48, 2); back.position.set(0,8,-13); scene.add(back);
+
+    // presses laid out as two production lines
+    this.machineMeshes = {};
+    this._pickables = [];
+    const hallPaint = M.paint(0x45524b);
+    this.currentMachines().forEach(m=>{
+      const meta = this.uiStatus(m);
+      const built = this.buildPress(M, hallPaint, new THREE.Color(meta.color));
+      const g = built.group;
+      g.position.set(m.x, 0, m.z);
+      g.userData = { id:m.id };
+      const ring = new THREE.Mesh(new THREE.RingGeometry(2.5,2.9,48), new THREE.MeshBasicMaterial({color:0xC3C7CC, side:THREE.DoubleSide, transparent:true, opacity:0}));
+      ring.rotation.x = -Math.PI/2; ring.position.set(0,0.05,0.2); g.add(ring);
+      scene.add(g);
+      this.machineMeshes[m.id] = { group:g, beacon:built.beacon, ring, meta };
+      this._pickables.push(g);
+    });
+
+    // conveyor lines feeding each row, with tires in/out
+    const conv1 = this.buildConveyor(M, 58); conv1.position.set(0,0,6.4); scene.add(conv1);
+    const conv2 = this.buildConveyor(M, 58); conv2.position.set(0,0,-6.6); scene.add(conv2);
+    for(let i=0;i<8;i++){ const t=this.tire(M,0.5); t.rotation.x=Math.PI/2; t.position.set(-26+i*0.36,0.92,6.4); scene.add(t); }
+    for(let i=0;i<7;i++){ const t=this.tire(M,0.5); t.rotation.x=Math.PI/2; t.position.set(-26+i*0.36,0.92,-6.6); scene.add(t); }
+    [[25.5,6.4],[26.6,6.4],[25.5,-6.6]].forEach(p=>{ for(let i=0;i<5;i++){ const t=this.tire(M,0.52); t.rotation.x=Math.PI/2; t.position.set(p[0],0.16+i*0.46,p[1]); scene.add(t); } });
+
+    const controls = new THREE.OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true; controls.dampingFactor = 0.08;
+    controls.maxPolarAngle = Math.PI/2.1; controls.minDistance = 12; controls.maxDistance = 82;
+    controls.target.set(0,2,-3);
+
+    const raycaster = new THREE.Raycaster();
+    const mouse = new THREE.Vector2();
+    const dom = renderer.domElement;
+    let down = null;
+    dom.addEventListener('pointerdown', e=>{ down = {x:e.clientX, y:e.clientY}; });
+    dom.addEventListener('pointerup', e=>{
+      if(!down) return;
+      const dx = e.clientX-down.x, dy = e.clientY-down.y;
+      down = null;
+      if(Math.hypot(dx,dy) > 6) return;
+      const rect = dom.getBoundingClientRect();
+      mouse.x = ((e.clientX-rect.left)/rect.width)*2-1;
+      mouse.y = -((e.clientY-rect.top)/rect.height)*2+1;
+      raycaster.setFromCamera(mouse, camera);
+      const hits = raycaster.intersectObjects(this._pickables, true);
+      if(hits.length){ let o = hits[0].object; while(o && !(o.userData && o.userData.id)) o = o.parent; if(o) this.selectMachine(o.userData.id); }
+    });
+    dom.addEventListener('pointermove', e=>{
+      const rect = dom.getBoundingClientRect();
+      mouse.x = ((e.clientX-rect.left)/rect.width)*2-1;
+      mouse.y = -((e.clientY-rect.top)/rect.height)*2+1;
+      raycaster.setFromCamera(mouse, camera);
+      const hits = raycaster.intersectObjects(this._pickables, true);
+      dom.style.cursor = hits.length ? 'pointer' : 'grab';
+    });
+
+    // post-processing: subtle bloom + film grain / vignette
+    const composer = new THREE.EffectComposer(renderer);
+    composer.addPass(new THREE.RenderPass(scene, camera));
+    composer.addPass(new THREE.UnrealBloomPass(new THREE.Vector2(w,h), 0.18, 0.5, 0.88));
+    const grain = { uniforms:{ tDiffuse:{value:null}, t:{value:0}, amount:{value:0.04} },
+      vertexShader:'varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }',
+      fragmentShader:'uniform sampler2D tDiffuse; uniform float t; uniform float amount; varying vec2 vUv; float rand(vec2 c){ return fract(sin(dot(c,vec2(12.9898,78.233)))*43758.5453); } void main(){ vec4 col=texture2D(tDiffuse,vUv); float n=rand(vUv+fract(t))*2.0-1.0; col.rgb+=n*amount; float d=distance(vUv,vec2(0.5)); float vig=smoothstep(0.98,0.45,d); col.rgb*=mix(0.76,1.0,vig); gl_FragColor=col; }' };
+    const grainPass = new THREE.ShaderPass(grain); this.grainPass = grainPass; composer.addPass(grainPass);
+
+    this.scene = scene; this.camera = camera; this.renderer = renderer; this.controls = controls; this.composer = composer;
+    this._onResize = ()=>{
+      if(!this.mountRef.current) return;
+      const W = this.mountRef.current.clientWidth, H = this.mountRef.current.clientHeight;
+      camera.aspect = W/H; camera.updateProjectionMatrix(); renderer.setSize(W,H); composer.setSize(W,H);
+    };
+    window.addEventListener('resize', this._onResize);
+    if(window.ResizeObserver){ this._ro = new ResizeObserver(()=>this._onResize()); this._ro.observe(mount); }
+
+    const clock = new THREE.Clock();
+    const animate = ()=>{
+      this._raf = requestAnimationFrame(animate);
+      const t = clock.getElapsedTime();
+      Object.values(this.machineMeshes).forEach(o=>{
+        const s = o.meta.status;
+        o.beacon.emissiveIntensity = s==='red' ? (1.0 + (0.5+0.5*Math.sin(t*5))*1.9) : (s==='yellow' ? 1.6 : 1.25);
+        if(o.ring.material.opacity>0){ o.ring.rotation.z = t*0.6; }
+      });
+      controls.update();
+      if(this.grainPass) this.grainPass.uniforms.t.value = (t%1);
+      composer.render();
+    };
+    animate();
+    this.updateScene();
+  }
+  updateScene(){
+    if(!this.machineMeshes) return;
+    this.currentMachines().forEach(m=>{
+      const o = this.machineMeshes[m.id];
+      if(!o) return;
+      const meta = this.uiStatus(m);
+      o.meta = meta;
+      const col = new window.THREE.Color(meta.color);
+      o.beacon.color.copy(col); o.beacon.emissive.copy(col);
+      o.ring.material.opacity = this.state.selectedId===m.id ? 0.9 : 0;
+    });
+  }
+  disposeThree(){
+    if(this._raf) cancelAnimationFrame(this._raf);
+    if(this._ro){ this._ro.disconnect(); this._ro = null; }
+    if(this._onResize) window.removeEventListener('resize', this._onResize);
+    if(this.renderer){
+      if(this.renderer.domElement && this.renderer.domElement.parentNode) this.renderer.domElement.parentNode.removeChild(this.renderer.domElement);
+      this.renderer.dispose();
+    }
+    this.renderer = null; this.scene = null; this.controls = null; this.composer = null; this.machineMeshes = null;
+  }
+
+  makeEnvTexture(){
+    const T = window.THREE;
+    const c = document.createElement('canvas'); c.width = 2048; c.height = 1024;
+    const x = c.getContext('2d');
+    const g = x.createLinearGradient(0,0,0,1024);
+    g.addColorStop(0,'#4d5b66'); g.addColorStop(0.36,'#333f48'); g.addColorStop(0.5,'#232c33'); g.addColorStop(0.7,'#171d22'); g.addColorStop(1,'#0c1013');
+    x.fillStyle = g; x.fillRect(0,0,2048,1024);
+    // ceiling high-bay light rows
+    for(let r=0;r<3;r++){ const y=70+r*46; for(let i=0;i<9;i++){ const gx=90+i*215;
+      const lg=x.createLinearGradient(0,y-14,0,y+16); lg.addColorStop(0,'rgba(255,246,228,0.0)'); lg.addColorStop(0.5,'rgba(255,246,228,0.95)'); lg.addColorStop(1,'rgba(255,246,228,0.0)');
+      x.fillStyle=lg; x.fillRect(gx,y-14,130,30); } }
+    // clerestory windows band (cool daylight)
+    const wg=x.createLinearGradient(0,300,0,360); wg.addColorStop(0,'rgba(150,178,200,0.0)'); wg.addColorStop(0.5,'rgba(170,196,216,0.8)'); wg.addColorStop(1,'rgba(150,178,200,0.0)');
+    x.fillStyle=wg; for(let i=0;i<16;i++){ x.fillRect(i*128+16, 300, 90, 60); }
+    const t = new T.CanvasTexture(c);
+    t.mapping = T.EquirectangularReflectionMapping; t.encoding = T.sRGBEncoding;
+    return t;
+  }
+
+  mats(){
+    const T = window.THREE, rough = this.makeSteelMaps();
+    return {
+      paint:(hex)=> new T.MeshStandardMaterial({color:hex, metalness:0.4, roughness:0.5, roughnessMap:rough, bumpMap:rough, bumpScale:0.004, envMapIntensity:0.85}),
+      steel: new T.MeshStandardMaterial({color:0x8b949b, metalness:0.92, roughness:0.34, roughnessMap:rough, envMapIntensity:1.25}),
+      steelDark: new T.MeshStandardMaterial({color:0x2b3237, metalness:0.85, roughness:0.46, roughnessMap:rough, envMapIntensity:1.1}),
+      chrome: new T.MeshStandardMaterial({color:0xccd0d2, metalness:1.0, roughness:0.13, envMapIntensity:1.5}),
+      insul: new T.MeshStandardMaterial({color:0x676c70, metalness:0.4, roughness:0.62, roughnessMap:rough, envMapIntensity:0.7}),
+      pipe: new T.MeshStandardMaterial({color:0x596670, metalness:0.85, roughness:0.34, roughnessMap:rough, envMapIntensity:1.2}),
+      yellow: new T.MeshStandardMaterial({color:0xcf9f23, metalness:0.25, roughness:0.5, envMapIntensity:0.7}),
+      cabinet: new T.MeshStandardMaterial({color:0x39434a, metalness:0.4, roughness:0.5, envMapIntensity:0.8}),
+      hmi: new T.MeshStandardMaterial({color:0x0a1420, emissive:0x1d5f8a, emissiveIntensity:0.9, metalness:0.1, roughness:0.25}),
+      rubber: new T.MeshStandardMaterial({color:0x0a0c0e, metalness:0.0, roughness:0.6, envMapIntensity:0.5})
+    };
+  }
+
+  buildPress(M, paint, statusColor){
+    const T = window.THREE, g = new T.Group();
+    const add=(geo,mat,x,y,z,rx,ry,rz)=>{ const m=new T.Mesh(geo,mat); m.position.set(x,y,z); if(rx)m.rotation.x=rx; if(ry)m.rotation.y=ry; if(rz)m.rotation.z=rz; m.castShadow=true; m.receiveShadow=true; g.add(m); return m; };
+    add(new T.BoxGeometry(3.2,0.5,2.3), M.steelDark, 0,0.25,0);
+    add(new T.BoxGeometry(3.4,0.12,2.5), M.steelDark, 0,0.06,0);
+    add(new T.BoxGeometry(2.5,1.2,1.9), paint, 0,1.1,0);
+    add(new T.BoxGeometry(0.42,3.3,0.6), M.steel, -1.28,2.15,0);
+    add(new T.BoxGeometry(0.42,3.3,0.6), M.steel,  1.28,2.15,0);
+    add(new T.BoxGeometry(3.1,0.75,1.25), paint, 0,3.95,0);
+    add(new T.BoxGeometry(3.25,0.16,1.4), M.steelDark, 0,4.4,0);
+    add(new T.CylinderGeometry(0.95,1.05,1.5,28), M.insul, 0,2.35,0);
+    for(let i=0;i<3;i++) add(new T.TorusGeometry(0.98,0.05,8,28), M.steelDark, 0,1.85+i*0.5,0, Math.PI/2);
+    add(new T.SphereGeometry(0.95,24,14,0,Math.PI*2,0,Math.PI/2), M.insul, 0,3.1,0);
+    add(new T.CylinderGeometry(0.28,0.28,1.1,20), M.chrome, 0,3.35,0);
+    add(new T.CylinderGeometry(1.1,1.1,0.18,28), M.steel, 0,1.6,0);
+    // steam/hydraulic pipe bundle
+    const px=1.78;
+    for(let i=0;i<3;i++){ const z=-0.55+i*0.55, r=0.09-i*0.015; add(new T.CylinderGeometry(r,r,3.2,8), M.pipe, px,1.9,z); }
+    add(new T.CylinderGeometry(0.14,0.14,2.4,12), M.insul, px+0.12,2.2,0.7);
+    add(new T.CylinderGeometry(0.11,0.11,1.7,10), M.pipe, px,0.5,0, 0,0,Math.PI/2);
+    // control cabinet + HMI
+    const cx=2.95;
+    add(new T.BoxGeometry(0.95,2.0,0.7), M.cabinet, cx,1.0,0.4);
+    add(new T.BoxGeometry(0.62,0.46,0.04), M.hmi, cx-0.02,1.55,0.77);
+    // safety railing
+    add(new T.BoxGeometry(2.6,0.08,0.9), M.steelDark, 0,1.15,1.55);
+    [-1.2,0,1.2].forEach(rx=> add(new T.CylinderGeometry(0.04,0.04,1.0,8), M.yellow, rx,1.65,1.95));
+    add(new T.CylinderGeometry(0.04,0.04,2.6,8), M.yellow, 0,2.1,1.95, 0,0,Math.PI/2);
+    // andon status beacon on a pole (visible across the hall)
+    add(new T.CylinderGeometry(0.05,0.05,0.9,8), M.steelDark, 0,4.9,0);
+    add(new T.CylinderGeometry(0.14,0.16,0.14,12), M.steelDark, 0,5.2,0);
+    const beaconMat = new T.MeshStandardMaterial({color:statusColor, emissive:statusColor, emissiveIntensity:1.4, metalness:0.2, roughness:0.3, transparent:true, opacity:0.95});
+    const beacon = new T.Mesh(new T.SphereGeometry(0.3,20,16), beaconMat); beacon.position.set(0,5.5,0); g.add(beacon);
+    return { group:g, beacon:beaconMat };
+  }
+
+  buildConveyor(M, len){
+    const T = window.THREE, g = new T.Group();
+    const add=(geo,mat,x,y,z)=>{ const m=new T.Mesh(geo,mat); m.position.set(x,y,z); m.castShadow=true; m.receiveShadow=true; g.add(m); return m; };
+    add(new T.BoxGeometry(len,0.12,1.15), M.steelDark, 0,0.62,0);
+    add(new T.BoxGeometry(len,0.2,0.1), M.steel, 0,0.72,0.56);
+    add(new T.BoxGeometry(len,0.2,0.1), M.steel, 0,0.72,-0.56);
+    for(let xx=-len/2+0.3; xx<len/2; xx+=0.62){ const r=new T.Mesh(new T.CylinderGeometry(0.09,0.09,1.05,12), M.steel); r.position.set(xx,0.75,0); r.rotation.x=Math.PI/2; r.castShadow=true; g.add(r); }
+    for(let xx=-len/2+0.9; xx<len/2; xx+=3.2){ [0.45,-0.45].forEach(z=> add(new T.BoxGeometry(0.1,0.62,0.1), M.steelDark, xx,0.31,z)); }
+    return g;
+  }
+
+  tire(M, r){
+    const T = window.THREE, g = new T.Group();
+    const t=new T.Mesh(new T.TorusGeometry(r,r*0.42,12,24), M.rubber); t.castShadow=true; t.receiveShadow=true; g.add(t);
+    const rim=new T.Mesh(new T.CylinderGeometry(r*0.5,r*0.5,r*0.5,16), M.steelDark); rim.rotation.x=Math.PI/2; g.add(rim);
+    return g;
+  }
+
+  makeConcreteTexture(bump){
+    const T = window.THREE;
+    const c = document.createElement('canvas'); c.width = 512; c.height = 512;
+    const x = c.getContext('2d');
+    x.fillStyle = bump ? '#808080' : '#40464a'; x.fillRect(0,0,512,512);
+    // aggregate speckle
+    for(let i=0;i<55000;i++){
+      const gx = Math.random()*512, gy = Math.random()*512, v = (Math.random()*70+55)|0;
+      x.fillStyle = bump ? 'rgba('+v+','+v+','+v+',0.05)' : 'rgba('+(v+28)+','+(v+32)+','+(v+34)+',0.045)';
+      x.fillRect(gx,gy,1.6,1.6);
+    }
+    // oil stains / discoloration
+    for(let i=0;i<48;i++){
+      const gx = Math.random()*512, gy = Math.random()*512, r = 14+Math.random()*72;
+      const rg = x.createRadialGradient(gx,gy,0,gx,gy,r);
+      const dark = bump ? 'rgba(74,74,74,' : 'rgba(20,24,26,';
+      rg.addColorStop(0, dark+(0.22+Math.random()*0.3)+')'); rg.addColorStop(1, dark+'0)');
+      x.fillStyle = rg; x.fillRect(gx-r,gy-r,r*2,r*2);
+    }
+    // cracks & scuffs
+    x.strokeStyle = bump ? 'rgba(38,38,38,0.6)' : 'rgba(14,17,19,0.5)';
+    for(let i=0;i<28;i++){
+      x.lineWidth = Math.random()*1.3; x.beginPath();
+      let px = Math.random()*512, py = Math.random()*512; x.moveTo(px,py);
+      for(let j=0;j<5;j++){ px += (Math.random()-0.5)*90; py += (Math.random()-0.5)*90; x.lineTo(px,py); }
+      x.stroke();
+    }
+    const t = new T.CanvasTexture(c);
+    t.wrapS = t.wrapT = T.RepeatWrapping; t.repeat.set(4,3);
+    if(!bump) t.encoding = T.sRGBEncoding;
+    return t;
+  }
+
+  makeSteelMaps(){
+    const T = window.THREE;
+    const c = document.createElement('canvas'); c.width = 256; c.height = 256;
+    const x = c.getContext('2d');
+    x.fillStyle = '#8c8c8c'; x.fillRect(0,0,256,256);
+    // fine brushed streaks
+    for(let i=0;i<1600;i++){
+      const y = Math.random()*256, gx = Math.random()*256, w = 18+Math.random()*130, v = (110+Math.random()*95)|0;
+      x.strokeStyle = 'rgba('+v+','+v+','+v+',0.14)'; x.lineWidth = 0.7;
+      x.beginPath(); x.moveTo(gx,y); x.lineTo(gx+w, y+(Math.random()-0.5)*1.5); x.stroke();
+    }
+    // wear blemishes (rougher patches)
+    for(let i=0;i<70;i++){
+      const gx = Math.random()*256, gy = Math.random()*256, r = 2+Math.random()*11;
+      const rg = x.createRadialGradient(gx,gy,0,gx,gy,r);
+      rg.addColorStop(0,'rgba(55,55,55,0.5)'); rg.addColorStop(1,'rgba(55,55,55,0)');
+      x.fillStyle = rg; x.fillRect(gx-r,gy-r,r*2,r*2);
+    }
+    const t = new T.CanvasTexture(c);
+    t.wrapS = t.wrapT = T.RepeatWrapping; t.repeat.set(2,2);
+    return t;
+  }
+
+  // ---- actions ----
+  selectMachine = (id)=>{ this.setState({selectedId:id, drawerOpen:true}); };
+  closeDrawer = ()=>{ this.setState({drawerOpen:false}); };
+  injectFault(mode){
+    if(this._ramp) clearInterval(this._ramp);
+    this.setState({faultMode:mode, faultProgress:0, selectedId:this.FOCAL, drawerOpen:true});
+    // inject the fault on the REAL hero press RC-07 (backend drives the arc)
+    fetch('/api/scenario/fault?kind='+mode, {method:'POST'}).then(()=>this.pollLive()).catch(()=>{});
+    const dur = 3000, t0 = performance.now();
+    this._ramp = setInterval(()=>{
+      let p = (performance.now()-t0)/dur;
+      if(p>=1){ p=1; clearInterval(this._ramp); this._ramp=null; }
+      const e = p<0.5 ? 2*p*p : 1-Math.pow(-2*p+2,2)/2; // easeInOutQuad
+      this.setState({faultProgress:e});
+    }, 80);
+  }
+  resetFault(){
+    fetch('/api/scenario/reset', {method:'POST'}).then(()=>this.pollLive()).catch(()=>{});
+    this.healAll();
+    this.setState({decisions:{}, faultMode:'none', faultProgress:0, history:[]});
+    if(this._ramp) clearInterval(this._ramp);
+    const p0 = this.state.faultProgress || 0;
+    if(p0<=0 || this.state.faultMode==='none'){ this.setState({faultMode:'none', faultProgress:0}); return; }
+    const dur = 1000, t0 = performance.now();
+    this._ramp = setInterval(()=>{
+      let k = (performance.now()-t0)/dur;
+      if(k>=1){ clearInterval(this._ramp); this._ramp=null; this.setState({faultMode:'none', faultProgress:0}); return; }
+      this.setState({faultProgress: p0*(1-k)});
+    }, 80);
+  }
+
+  openConfirm(action){
+    this.setState({confirmOpen:true, confirmAction:action, confirmId:this.state.selectedId});
+  }
+  cancelConfirm = ()=>{ this.setState({confirmOpen:false}); };
+  doConfirm = ()=>{
+    const id = this.state.confirmId;
+    const action = this.state.confirmAction;
+    const m = this.currentMachines().find(x=>x.id===id);
+    const rec = this.recFor(m);
+    let toast;
+    if(action==='accept'){
+      toast = rec.severity==='green'||rec.severity==='yellow' ? 'Acknowledged · '+id : 'Recorded · maintenance scheduled for '+id;
+    } else {
+      toast = rec.severity==='green'||rec.severity==='yellow' ? 'Concern flagged · '+id : 'Override logged for '+id+' · your ID recorded';
+    }
+    if(rec && rec.liveId){
+      fetch('/api/advisory/'+rec.liveId+'/'+(action==='accept'?'accept':'override'), {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({reason:(action==='accept'?'Accepted':'Overridden')+' from CureWatch UI'})
+      }).then(()=>this.pollLive()).catch(()=>{});
+    }
+    const decisions = Object.assign({}, this.state.decisions);
+    decisions[id] = { action, sev:rec.severity };
+    this.setState({decisions, confirmOpen:false, toastText:toast, toastVisible:true});
+    clearTimeout(this._toast);
+    this._toast = setTimeout(()=> this.setState({toastVisible:false}), 3000);
+  };
+
+  askAgent = ()=>{ this.setState({activeView:'chat'}); };
+
+  // ---- chat ----
+  onChatInput = (e)=>{ this.setState({chatInput:e.target.value}); };
+  onChatKey = (e)=>{ if(e.key==='Enter' && !e.shiftKey){ e.preventDefault(); this.sendText(this.state.chatInput); } };
+  sendChat = ()=>{ this.sendText(this.state.chatInput); };
+  sendText(raw){
+    const text = (raw||'').trim();
+    if(!text) return;
+    // prior turns BEFORE this question — the agent builds on the
+    // conversation instead of re-dumping the full health report every time
+    const hist = this.state.messages.slice(-8).map(m=>({
+      role:(m.role==='user'?'user':'agent'), content:String(m.text||'')}));
+    const messages = this.state.messages.concat([{role:'user', text}]);
+    this.setState({messages, chatInput:'', isTyping:true});
+    clearTimeout(this._typing);
+    // real PRAETOR agent (DEEP tool-calling lane): it actually queries the
+    // machine's live data per question. Scoped to the press the operator is
+    // looking at; the design's scripted agent stays as the offline fallback.
+    fetch('/api/chat', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({question:text, stream:false, mode:'deep',
+                            machine_id:(this.state.selectedId||this.FOCAL),
+                            history:hist})})
+      .then(r=>{ if(!r.ok) throw new Error('http '+r.status); return r.json(); })
+      .then(j=>{
+        const t = j && (j.answer || j.content || (j.turn && j.turn.content));
+        if(!t) throw new Error('empty answer');
+        this.pushAgent(t);
+      })
+      .catch(()=>{
+        this._typing = setTimeout(()=>{
+          const reply = this.respond(text);
+          this.setState({messages: this.state.messages.concat([reply]), isTyping:false});
+        }, 850);
+      });
+  }
+  respond(text){
+    const t = text.toLowerCase();
+    const f = this.focal();
+    const temp = f.readings.mould_temp_C.toFixed(1);
+    const vib = f.readings.vibration_rms_mm_s.toFixed(1);
+    const hp = Math.round(f.health*100);
+    const mode = this.state.faultMode;
+    const rising = mode==='thermal';
+    const series = this.tempSeries(rising);
+
+    if((t.includes('change')&&t.includes('mind')) || t.includes("won't fail") || t.includes('wont fail') || t.includes("don't think")){
+      if(rising){
+        return { role:'agent',
+          text:"Fair challenge — here's exactly what would change my mind. I'd drop the alert if any of these held: (1) mould temp stops climbing and returns under 156 °C for 3 cycles — right now it's "+temp+" °C and rising ~2 °C/cycle; (2) my reconstructed temperature matched the sensor within 1 °C, which would point to a bad thermocouple instead of a real fault — currently they diverge 4.3 °C; (3) vibration and pressure stayed flat, which they are. Two of three point to a genuine Zone-3 heater drift, so I'm holding my recommendation. Last 40 cycles:",
+          showData:true, chartLabel:'MOULD TEMP · LAST 40 CYCLES', chart:this.buildChart(series) };
+      }
+      return { role:'agent',
+        text:"Right now I agree with you — nothing says CP-07 will fail. It's at "+hp+"% health, mould temp "+temp+" °C and flat, vibration "+vib+" mm/s. I'd only flag it if temperature climbed past 160 °C, or vibration crossed 4 mm/s. Want to see how I'd react? Run a fault from the Floor view. Here's the current, stable trend:",
+        showData:true, chartLabel:'MOULD TEMP · LAST 40 CYCLES', chart:this.buildChart(series) };
+    }
+    if(t.includes('why')||t.includes('flag')||t.includes('alert')){
+      if(rising){
+        return { role:'agent',
+          text:"CP-07 is flagged because mould temperature is "+temp+" °C — 18 °C above the cure setpoint of 156 °C — and it's climbing every cycle. I cross-checked against coil power, which rose in step, so the twin attributes it to a failing Zone-3 heater element rather than a sensor glitch. Curing above the window makes scrap product, so I recommend a hold:",
+          showData:true, chartLabel:'MOULD TEMP vs SETPOINT', chart:this.buildChart(series) };
+      }
+      return { role:'agent', text:"Nothing is flagged on CP-07 right now — it's healthy at "+hp+"%. All four signals sit inside their limits and my reconstructed values track the sensors closely." };
+    }
+    if(t.includes('trend')||t.includes('temperature')||t.includes('show')||t.includes('chart')||t.includes('temp')){
+      return { role:'agent',
+        text:"Here's CP-07's mould temperature over the last 40 cures. The dashed line is the 156 °C cure setpoint. Current reading: "+temp+" °C.",
+        showData:true, chartLabel:'MOULD TEMP · LAST 40 CYCLES', chart:this.buildChart(series) };
+    }
+    if(t.includes('keep running')||t.includes('happens')||t.includes('ignore')||t.includes('if i')){
+      if(rising){
+        return { role:'agent', text:"If CP-07 keeps running: at +2 °C/cycle it reaches ~185 °C within ~12 cures, past the bladder's safe limit. Expect scrap product now and possible bladder or heater damage soon. The RUL estimate drops to roughly 640 cycles. You can override and keep running — it'll be logged — but I'd schedule the hold." };
+      }
+      return { role:'agent', text:"Keeping CP-07 running is fine — it's healthy. I'll keep watching all four signals and alert you the moment anything leaves its window." };
+    }
+    return { role:'agent', text:"On CP-07 right now: mould temp "+temp+" °C, vibration "+vib+" mm/s, health "+hp+"%. Ask me why it's flagged, to show a trend, or what would change my assessment." };
+  }
+  tempSeries(rising){
+    const pts = [];
+    for(let i=0;i<40;i++){
+      if(rising){
+        const base = i<18 ? 152 : 152 + (i-18)*0.92;
+        pts.push(base + Math.sin(i*1.3)*0.5);
+      } else {
+        pts.push(152 + Math.sin(i*1.1)*0.7 + (i%7===0?0.4:0));
       }
     }
-  } catch (err) {
-    agentB.textContent = "connection error: " + err;
+    return pts;
   }
-  chatLog.scrollTop = chatLog.scrollHeight;
-});
+  buildChart(series){
+    const W=300, H=88, pad=6;
+    const domMin=148, domMax=176;
+    const xFor = i => pad + (i/(series.length-1))*(W-pad*2);
+    const yFor = v => (H-pad) - ((v-domMin)/(domMax-domMin))*(H-pad*2);
+    const pts = series.map((v,i)=> xFor(i)+','+yFor(v)).join(' ');
+    const setY = yFor(156);
+    const last = series[series.length-1];
+    const lastAbove = last>158;
+    const line = lastAbove ? '#F0524B' : '#B23A48';
+    const el = React.createElement;
+    return el('svg',{viewBox:'0 0 '+W+' '+H,preserveAspectRatio:'none',style:{display:'block',width:'100%',height:'104px'}},[
+      el('line',{key:'sp',x1:pad,x2:W-pad,y1:setY,y2:setY,stroke:'#B23A48',strokeWidth:1.2,strokeDasharray:'4 3',opacity:0.6,vectorEffect:'non-scaling-stroke'}),
+      el('polyline',{key:'ln',points:pts,fill:'none',stroke:line,strokeWidth:2,strokeLinejoin:'round',strokeLinecap:'round',vectorEffect:'non-scaling-stroke'}),
+      el('circle',{key:'dot',cx:xFor(series.length-1),cy:yFor(last),r:2.6,fill:line})
+    ]);
+  }
 
-/* ---------------- boot ---------------- */
-(async function boot() {
-  await refreshHealth();
-  setInterval(refreshHealth, 7000);
-  connectStream();
-  // show any advisories already in the store (page reload mid-demo)
-  try {
-    const advs = await (await fetch("/api/advisories?limit=20")).json();
-    for (const a of advs.reverse()) renderAdvisory(a);
-  } catch (e) { /* server still booting */ }
-})();
+  // ---- render ----
+  navStyle(active){
+    return { width:'58px', height:'56px', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center',
+      background: active?'#2A1720':'transparent', border:'1px solid '+(active?'#4A2834':'transparent'), borderRadius:'11px',
+      color: active?'#B23A48':'#7f96a1', cursor:'pointer', fontFamily:"'IBM Plex Sans',sans-serif", transition:'all .15s' };
+  }
+  pill(color, label){
+    return { fontSize:'10.5px', fontWeight:700, letterSpacing:'.5px', padding:'3px 9px', borderRadius:'20px',
+      color:color, background:color+'22', border:'1px solid '+color+'55' };
+  }
+
+  statusDark(status){ return status==='green' ? '#1E9E62' : status==='yellow' ? '#C6881B' : '#CF3A34'; }
+
+  deriveMachine(m){
+    const meta = this.uiStatus(m);
+    const dark = this.statusDark(meta.status);
+    const metricThermal = this.state.faultMode==='thermal' && m.id===this.FOCAL;
+    return {
+      id:m.id, name:m.id, type:m.type, bay:m.bay,
+      statusLabel:meta.label, statusColor:meta.color, darkColor:dark,
+      pillStyle:this.pill(meta.color, meta.label),
+      lightPill:{ fontSize:'10.5px', fontWeight:700, letterSpacing:'.4px', padding:'3px 10px', borderRadius:'20px',
+        color:dark, background:dark+'16', border:'1px solid '+dark+'38' },
+      healthPct: Math.round(m.health*100)+'%',
+      metricLabel: metricThermal?'Mould temp':'Vibration',
+      metricValue: metricThermal? m.readings.mould_temp_C.toFixed(1)+' °C' : m.readings.vibration_rms_mm_s.toFixed(1)+' mm/s',
+      metricColor: meta.color==='#35C08A' ? '#c4d3da' : meta.color,
+      metricColorLight: meta.status==='green' ? '#c4d3da' : meta.color,
+      cardStyle: { background:'#141D24', border:'1px solid #223038', borderLeft:'3px solid '+meta.color, borderRadius:'11px',
+        padding:'15px 16px', cursor:'pointer', textAlign:'left', fontFamily:"'IBM Plex Sans',sans-serif", display:'block', width:'100%',
+        transition:'all .16s' },
+      _raw:m, _meta:meta
+    };
+  }
+
+  deriveSelected(){
+    const id = this.state.selectedId;
+    if(!id) return null;
+    const m = this.currentMachines().find(x=>x.id===id);
+    if(!m) return null;
+    const meta = this.uiStatus(m);
+    const r = m.readings;
+    const spec = m.spec || this.curingSpec();
+    const et=this.evalLimit('mould_temp_C', r.mould_temp_C, spec);
+    const ep=this.evalLimit('pressure_bar', r.pressure_bar, spec);
+    const evb=this.evalLimit('vibration_rms_mm_s', r.vibration_rms_mm_s, spec);
+    const ew=this.evalLimit('coil_power_kW', r.coil_power_kW, spec);
+    const tiles = [
+      {label:'Mould Temp', value:r.mould_temp_C.toFixed(1), unit:'\u00b0C', color:et.color, state:et.state},
+      {label:'Pressure', value:r.pressure_bar.toFixed(1), unit:'bar', color:ep.color, state:ep.state},
+      {label:'Vibration', value:r.vibration_rms_mm_s.toFixed(1), unit:'mm/s', color:evb.color, state:evb.state},
+      {label:'Coil Power', value:r.coil_power_kW.toFixed(1), unit:'kW', color:ew.color, state:ew.state}
+    ];
+    const C = 2*Math.PI*34;
+    const fmodes = this.failureModesFor(m).map(fm=>{
+      const color = fm.p>0.4?'#F0524B':fm.p>0.15?'#F0B23E':'#6f8792';
+      return {name:fm.name, pct:Math.round(fm.p*100)+'%', width:Math.max(fm.p*100,3)+'%', color};
+    });
+    const rec = this.recFor(m);
+    const dec = this.state.decisions[id];
+    const cyclesPerDay = 96;   // ~15-min curing cycles over 24h
+    const days = m.rul/cyclesPerDay;
+    const rulTime = days<2 ? Math.round(days*24)+' hrs' : Math.round(days)+' days';
+    // colour by HEALTH so the ring and the cycles number always tell one story
+    const rulColor = m.health<0.45?'#F0524B':m.health<0.70?'#F0B23E':'#8aa0ab';
+    const plainMap = { green:'Operating normally, inside the cure window.', yellow:'A signal is trending — worth keeping an eye on.', red:'Out of safe range — the agent recommends action now.' };
+    let decisionText='', decisionStyle={};
+    if(dec){
+      const good = dec.action==='accept';
+      decisionText = dec.action==='accept'
+        ? (rec.severity==='green'||rec.severity==='yellow' ? 'You acknowledged this assessment.' : 'Accepted — maintenance scheduled.')
+        : (rec.severity==='green'||rec.severity==='yellow' ? 'Concern flagged for review.' : 'Overridden — press kept running (logged).');
+      const dc = dec.action==='accept' ? '#35C08A' : '#F0B23E';
+      decisionStyle = { marginTop:'15px', display:'flex', alignItems:'center', gap:'8px', padding:'11px 13px',
+        background:dc+'18', border:'1px solid '+dc+'44', borderRadius:'9px', color:dc, fontSize:'12.5px', fontWeight:600 };
+    }
+    return {
+      name:m.id, type:m.type, bay:m.bay,
+      statusLabel:meta.label, pillStyle:this.pill(meta.color, meta.label),
+      plain: plainMap[meta.status],
+      plainStyle:{ marginTop:'11px', fontSize:'13px', color:'#c4d3da', lineHeight:'1.45' },
+      tiles,
+      healthPct: Math.round(m.health*100)+'%',
+      healthColor: meta.color,
+      healthDash: (m.health*C).toFixed(1)+' '+C.toFixed(1),
+      rulCycles: m.rul.toLocaleString(),
+      rulTime, rulColor,
+      failureModes: fmodes,
+      recColor: rec.color, recTitle: rec.title, recDetail: rec.detail,
+      recHeader: rec.severity==='red' ? '\u26a0 IMMEDIATE ACTION REQUIRED' : 'AGENT RECOMMENDATION',
+      acceptLabel: rec.acceptLabel, overrideLabel: rec.overrideLabel,
+      recCardStyle: (rec.severity==='red')
+        ? { background:'#F0524B22', border:'2px solid #F0524B', borderRadius:'12px', padding:'16px', animation:'cw-danger 1.4s infinite' }
+        : { background:rec.color+'12', border:'1px solid '+rec.color+'40', borderRadius:'12px', padding:'16px' },
+      recUrgent: rec.severity==='red',
+      acceptFn: ()=>this.openConfirm('accept'),
+      overrideFn: ()=>this.openConfirm('override'),
+      decided: !!dec, undecided: !dec,
+      decisionText, decisionStyle
+    };
+  }
+
+  renderVals(){
+    const cur = this.currentMachines();
+    const counts = {green:0,yellow:0,red:0};
+    cur.forEach(m=> counts[this.uiStatus(m).status]++);
+    const view = this.state.activeView;
+    // role switch: the MANAGER view adds the information-flow map (our
+    // information-layer value-add); operators keep the floor screens.
+    // Each role keeps its OWN chat thread (stashed in chatByRole and
+    // restored on the way back — no shared conversation between roles).
+    const isManager = (this.state.role||'operator')==='manager';
+    const _swapChat = (newRole)=>{
+      const byRole = Object.assign({}, this.state.chatByRole||{});
+      byRole[this.state.role||'operator'] = this.state.messages;
+      const seeded = byRole[newRole] || (newRole==='manager'
+        ? [{role:'agent', text:'Manager channel. Same line agent, same live data - ask about the line, past decisions, or the information flow. This thread is separate from the operator chat.'}]
+        : this.state.messages);
+      return {chatByRole: byRole, messages: seeded};
+    };
+    const setRoleOperator = ()=>this.setState(Object.assign(_swapChat('operator'), {role:'operator',
+      activeView: this.state.activeView==='flow' ? 'floor' : this.state.activeView}));
+    const setRoleManager = ()=>this.setState(Object.assign(_swapChat('manager'), {role:'manager', activeView:'flow'}));
+    const _roleBtn = on => "padding:6px 12px;font-size:10px;font-weight:700;letter-spacing:.8px;border:none;cursor:pointer;font-family:'IBM Plex Sans',sans-serif;"
+      + (on ? 'background:#8E2536;color:#fff;' : 'background:#182530;color:#7f96a1;');
+    const roleOpStyle = _roleBtn(!isManager), roleMgrStyle = _roleBtn(isManager);
+    const goFlow = ()=>this.setState({activeView:'flow'});
+    const flowNavStyle = this.navStyle(view==='flow');
+    const flowD = this.deriveFlow();
+
+    const overviewMachines = cur.map(m=>{
+      const d = this.deriveMachine(m);
+      d.select = ()=>this.selectMachine(m.id);
+      return d;
+    });
+
+    const sel = this.deriveSelected();
+    if(sel){ sel.acceptFn = ()=>this.openConfirm('accept'); sel.overrideFn = ()=>this.openConfirm('override'); }
+
+    // confirm text
+    const cm = this.state.confirmId ? cur.find(x=>x.id===this.state.confirmId) : null;
+    const crec = cm ? this.recFor(cm) : {color:'#B23A48', severity:'green'};
+    const action = this.state.confirmAction;
+    let confirmTitle='', confirmBody='', confirmCta='', confirmColor='#B23A48';
+    if(cm){
+      const sev = crec.severity;
+      if(action==='accept'){
+        confirmColor = crec.color;
+        confirmCta = 'Confirm';
+        if(sev==='green'||sev==='yellow'){ confirmTitle='Acknowledge assessment'; confirmBody='Acknowledge the agent\u2019s reading for '+cm.id+'. No maintenance action is scheduled.'; }
+        else { confirmTitle='Accept recommendation'; confirmBody='Schedule the recommended maintenance action on '+cm.id+' and stop after the current cure. The line supervisor will be notified.'; }
+      } else {
+        confirmColor = '#F0B23E';
+        confirmCta = 'Override';
+        if(sev==='green'||sev==='yellow'){ confirmTitle='Flag a concern'; confirmBody='Raise a concern on '+cm.id+' for the maintenance team to review, even though the agent sees no fault.'; }
+        else { confirmTitle='Override the agent'; confirmBody='Keep '+cm.id+' running against the recommendation. This decision is logged against your operator ID and stays on the record.'; }
+      }
+    }
+
+    const redCount = counts.red;
+    return {
+      ...flowD.vars,
+      isManager, setRoleOperator, setRoleManager, roleOpStyle, roleMgrStyle,
+      goFlow, flowNavStyle,
+      flowFeed: flowD.feed,
+      flowFeedEmpty: flowD.feedEmpty, flowModeLabel: flowD.modeLabel,
+      flowModeStyle: flowD.modeStyle, flowHasBlocked: flowD.hasBlocked,
+      flowBlockedLabel: flowD.blockedLabel,
+      activeView:view,
+      clock:this.state.clock,
+      isFloor: view==='floor', isOverview: view==='overview', isChat: view==='chat', isLog: view==='log', isFlow: view==='flow',
+      goFloor: ()=>this.setState({activeView:'floor'}),
+      goOverview: ()=>this.setState({activeView:'overview'}),
+      goChat: ()=>this.setState({activeView:'chat'}),
+      goLog: ()=>this.setState({activeView:'log'}),
+      logNavStyle: this.navStyle(view==='log'),
+      historyEntries: (this.state.history||[]).map(h=>this.deriveHistory(h)),
+      historyEmpty: !((this.state.history||[]).length),
+      floorNavStyle: this.navStyle(view==='floor'),
+      overviewNavStyle: this.navStyle(view==='overview'),
+      chatNavStyle: this.navStyle(view==='chat'),
+
+      alertText: redCount>0 ? (redCount+' active alert'+(redCount>1?'s':'')) : counts.yellow>0 ? (counts.yellow+' to watch') : 'All systems nominal',
+      alertPillStyle: { display:'flex', alignItems:'center', gap:'8px', fontSize:'12px', fontWeight:600, padding:'6px 12px', borderRadius:'20px',
+        color: redCount>0?'#F0524B':counts.yellow>0?'#F0B23E':'#35C08A', background: (redCount>0?'#F0524B':counts.yellow>0?'#F0B23E':'#35C08A')+'1e', border:'1px solid '+(redCount>0?'#F0524B55':counts.yellow>0?'#F0B23E55':'#35C08A44') },
+      alertDotStyle: { width:'8px', height:'8px', borderRadius:'50%', background: redCount>0?'#F0524B':counts.yellow>0?'#F0B23E':'#35C08A',
+        animation: redCount>0?'cw-pulse 1.4s infinite':'none' },
+
+      greenCount:counts.green, yellowCount:counts.yellow, redCount:counts.red,
+      mountRef:this.mountRef,
+
+      kpis:[
+        {label:'Machines online', value:'12 / 12', sub:'Full curing hall'},
+        {label:'Alerts caught early', value:'7', sub:'This quarter'},
+        {label:'Override rate', value:'6%', sub:'Operator vs agent'},
+        {label:'Uptime preserved', value:'312 h', sub:'Est. avoided downtime'}
+      ],
+      overviewMachines,
+
+      showDrawer: this.state.drawerOpen && !!sel,
+      sel,
+      closeDrawer:this.closeDrawer,
+      askAgentFn:this.askAgent,
+
+      injectThermal: ()=>this.injectFault('thermal'),
+      injectBearing: ()=>this.injectFault('bearing'),
+      resetFault: ()=>this.resetFault(),
+      thermalBtnStyle: this.faultBtn(this.state.faultMode==='thermal','#F0524B'),
+      bearingBtnStyle: this.faultBtn(this.state.faultMode==='bearing','#F0B23E'),
+      resetBtnStyle: this.faultBtn(this.state.faultMode==='none','#35C08A'),
+
+      confirmOpen:this.state.confirmOpen,
+      confirmTitle, confirmBody, confirmCta, confirmColor,
+      confirmIconStyle:{ width:'46px', height:'46px', borderRadius:'12px', background:confirmColor+'1e', border:'1px solid '+confirmColor+'44', display:'flex', alignItems:'center', justifyContent:'center' },
+      cancelConfirm:this.cancelConfirm, doConfirm:this.doConfirm, stop:(e)=>e.stopPropagation(),
+
+      toastVisible:this.state.toastVisible, toastText:this.state.toastText,
+
+      messages: this.state.messages.map(m=>this.deriveMsg(m)),
+      isTyping:this.state.isTyping,
+      chatInput:this.state.chatInput,
+      onChatInput:this.onChatInput, onChatKey:this.onChatKey, sendChat:this.sendChat,
+      chips:[
+        {label:'Why is CP-07 flagged?', send:()=>this.sendText('Why is CP-07 flagged?')},
+        {label:"I don't think it'll fail \u2014 what would change your mind?", send:()=>this.sendText("I don't think it'll fail tomorrow \u2014 what would change your mind?")},
+        {label:'Show the temperature trend', send:()=>this.sendText('Show me the temperature trend')},
+        {label:'What if I keep running?', send:()=>this.sendText('What happens if I keep running?')}
+      ]
+    };
+  }
+
+  faultBtn(active, color){
+    return { display:'flex', alignItems:'center', gap:'9px', padding:'10px 12px', borderRadius:'9px',
+      background: active?color+'20':'#0f1519', border:'1px solid '+(active?color+'77':'#2b3d47'),
+      color: active?'#eaf1f4':'#b6c8d1', cursor:'pointer', fontFamily:"'IBM Plex Sans',sans-serif", fontSize:'13px', fontWeight:500, width:'100%' };
+  }
+  deriveMsg(m){
+    const isUser = m.role==='user';
+    return {
+      text:m.text,
+      showData: !!m.showData,
+      chartLabel: m.chartLabel||'',
+      chart: m.chart||null,
+      rowStyle:{ display:'flex', justifyContent: isUser?'flex-end':'flex-start', animation:'cw-up .2s ease' },
+      bubbleStyle:{ maxWidth:'78%', background: isUser?'#2A141A':'#182530', border:'1px solid '+(isUser?'#5A2530':'#24333c'),
+        borderRadius:'14px', padding:'13px 15px' },
+      textStyle:{ fontSize:'13.5px', lineHeight:'1.55', color:'#eaf1f4', whiteSpace:'pre-wrap' }
+    };
+  }
+}
 </script>
 </body>
 </html>
