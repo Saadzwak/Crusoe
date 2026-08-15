@@ -1,0 +1,21 @@
+# Render Blueprint — public PRAETOR demo (LEGION / Floor / X-ray / passport).
+# Deploy: Render dashboard -> New -> Blueprint -> connect this repo -> pick
+# branch feat/xray-passport-widgets -> Apply. Render reads this file and
+# provisions the service automatically; nothing else to configure.
+services:
+  - type: web
+    name: praetor-demo
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    envVars:
+      # Public demo default: deterministic mock (free, can't be cost-abused
+      # if the link spreads). Flip to "0" + set CRUSOE_API_KEY as a Render
+      # secret to demo live Nemotron responses instead.
+      - key: MOCK_LLM
+        value: "1"
+      - key: PINN_HMAC_SECRET
+        generateValue: true
+      - key: JURY_PASS_THRESHOLD
+        value: "3.0"
+    healthCheckPath: /api/health

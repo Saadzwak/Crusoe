@@ -1,0 +1,13 @@
+.git
+.venv
+.env
+__pycache__
+*.pyc
+backend/agent/praetor_state.db
+runs/
+pinn_data_exploration/
+docs/
+*.md
+!README.md
+node_modules
+.DS_Store
